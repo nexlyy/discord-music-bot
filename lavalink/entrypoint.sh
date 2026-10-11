@@ -5,6 +5,10 @@ set -e
 if [ -n "$YANDEX_MUSIC_TOKEN" ]; then export LAVASRC_YANDEX_ENABLED=true; else export LAVASRC_YANDEX_ENABLED=false; fi
 if [ -n "$VK_MUSIC_TOKEN" ]; then export LAVASRC_VK_ENABLED=true; else export LAVASRC_VK_ENABLED=false; fi
 
+# Ключи приложения Spotify — запасной вариант. С ними LavaSrc получает 403 на миксах (автоплей),
+# поэтому по умолчанию работаем через анонимный токен spotify-tokener.
+if [ "$SPOTIFY_USE_APP_CREDENTIALS" != "true" ]; then unset SPOTIFY_CLIENT_ID SPOTIFY_CLIENT_SECRET; fi
+
 # Прокси нужны Яндексу и VK за пределами РФ/СНГ. Spring подхватит их через relaxed binding.
 if [ -n "$YANDEX_PROXY_URL" ]; then
   export PLUGINS_LAVASRC_YANDEXMUSIC_PROXY_URL="$YANDEX_PROXY_URL"

@@ -104,7 +104,22 @@ docker compose up -d --force-recreate lavalink
 
 Источник включится сам, как только появится токен. Проверить можно в панели: **Статус → Проверить площадки**.
 
-**Spotify** и **Apple Music** ключей не требуют. Если сервис токенов Spotify перестанет работать, создай приложение на developer.spotify.com (владельцу нужен Premium) и впиши `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`.
+**Spotify** и **Apple Music** ключей не требуют. Ключи приложения Spotify (`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`) лежат в `.env` как запасной вариант. Включаются они через `SPOTIFY_USE_APP_CREDENTIALS=true`, но только если перестанет работать сервис токенов: с ключами Spotify отклоняет миксы, и автоплей после Spotify-треков переходит на миксы YouTube. Приложению Spotify в режиме разработки нужен Premium у владельца.
+
+### Проверка воспроизведения
+
+Поиск может работать, а сам звук — нет (так YouTube ведёт себя с IP дата-центров). Честная проверка, которая запускает треки в Lavalink:
+
+```bash
+bash scripts/probe-playback.sh                     # стандартный набор
+bash scripts/probe-playback.sh "ymsearch:земфира"   # свои запросы
+```
+
+### Если YouTube перестал играть
+
+1. `bash scripts/probe-playback.sh` покажет ошибку каждого клиента YouTube.
+2. «Sign in to confirm you're not a bot» на TV-клиенте значит, что токен умер: запусти `bash scripts/youtube-login.sh`.
+3. «The page needs to be reloaded» — известная ошибка [youtube-source#226](https://github.com/lavalink-devs/youtube-source/issues/226). Сейчас стоит snapshot-сборка с исправлением (`YOUTUBE_PLUGIN_SNAPSHOT=true`). Когда выйдет релиз новее 1.18.2, автообновление само вернётся на обычные версии.
 
 ## Веб-панель
 
