@@ -1,0 +1,166 @@
+# Конфиг Lavalink. Секреты подставляются из переменных окружения (см. .env).
+# Флаги источников YANDEX/VK выставляет entrypoint.sh: источник включается, только если задан токен.
+
+server:
+  port: 2333
+  address: 0.0.0.0
+  http2:
+    enabled: false
+
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:${YOUTUBE_PLUGIN_VERSION:1.18.2}"
+      snapshot: false
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:${LAVASRC_VERSION:4.8.3}"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+    - dependency: "com.github.topi314.lavalyrics:lavalyrics-plugin:${LAVALYRICS_VERSION:1.1.0}"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+  pluginsDir: "./plugins"
+  server:
+    password: "${LAVALINK_PASSWORD}"
+    sources:
+      youtube: false # встроенный источник устарел, вместо него youtube-plugin
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      nico: false
+      http: true
+      local: false
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: HIGH
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 1
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+    timeouts:
+      connectTimeoutMs: 10000
+      connectionRequestTimeoutMs: 10000
+      socketTimeoutMs: 10000
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - TV
+      - TVHTML5_SIMPLY
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+    clientOptions:
+      TV:
+        searching: false
+        playlistLoading: false
+    oauth:
+      enabled: ${YOUTUBE_OAUTH_ENABLED:true}
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+      skipInitialization: ${YOUTUBE_OAUTH_SKIP_INIT:false}
+    remoteCipher:
+      url: "http://yt-cipher:8001"
+      password: "${YT_CIPHER_TOKEN}"
+      userAgent: "discord-music-bot"
+
+  lavasrc:
+    providers:
+      - "ytmsearch:\"%ISRC%\""
+      - "ytmsearch:%QUERY%"
+      - "ytsearch:%QUERY%"
+    sources:
+      spotify: true
+      applemusic: true
+      deezer: false
+      yandexmusic: ${LAVASRC_YANDEX_ENABLED:false}
+      vkmusic: ${LAVASRC_VK_ENABLED:false}
+      youtube: true
+      flowerytts: false
+      tidal: false
+      qobuz: false
+      ytdlp: false
+      jiosaavn: false
+    lyrics-sources:
+      spotify: false
+      deezer: false
+      youtube: true
+      yandexmusic: ${LAVASRC_YANDEX_ENABLED:false}
+      vkmusic: ${LAVASRC_VK_ENABLED:false}
+      lrcLib: true
+    spotify:
+      clientId: "${SPOTIFY_CLIENT_ID:}"
+      clientSecret: "${SPOTIFY_CLIENT_SECRET:}"
+      preferPartnerApi: ${SPOTIFY_PREFER_PARTNER_API:true}
+      customTokenEndpoint: "http://spotify-tokener:8080/api/token"
+      countryCode: "FI"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+      resolveArtistsInSearch: true
+      localFiles: false
+    applemusic:
+      countryCode: "US"
+      mediaAPIToken: "${APPLE_MUSIC_TOKEN:}"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+    yandexmusic:
+      accessToken: "${YANDEX_MUSIC_TOKEN:}"
+      playlistLoadLimit: 3
+      albumLoadLimit: 3
+      artistLoadLimit: 3
+    vkmusic:
+      userToken: "${VK_MUSIC_TOKEN:}"
+      playlistLoadLimit: 3
+      artistLoadLimit: 3
+      recommendationsLoadLimit: 15
+    youtube:
+      countryCode: "RU"
+      language: "ru"
+
+  lavalyrics:
+    sources:
+      - lrcLib
+      - yandexMusic
+      - vkMusic
+      - youtube
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+sentry:
+  dsn: ""
+  environment: ""
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+  request:
+    enabled: false
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 5

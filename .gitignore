@@ -1,0 +1,7 @@
+.env
+data/
+lavalink/plugins/
+lavalink/logs/
+bot/node_modules/
+bot/dist/
+*.log

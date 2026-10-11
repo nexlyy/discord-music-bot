@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music Bot · Панель</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Вход -->
+  <section id="login" class="login hidden">
+    <form id="login-form" class="login-card">
+      <div class="login-logo">🎵</div>
+      <h1>Music Bot</h1>
+      <p class="muted">Панель управления</p>
+      <input id="login-password" type="password" placeholder="Пароль панели" autocomplete="current-password" required>
+      <button class="btn primary" type="submit">Войти</button>
+      <p id="login-error" class="error"></p>
+      <p class="hint">Пароль — переменная <code>PANEL_PASSWORD</code> в файле <code>.env</code> на сервере.</p>
+    </form>
+  </section>
+
+  <!-- Приложение -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand">
+        <img id="guild-icon" class="guild-icon hidden" alt="">
+        <div>
+          <div id="guild-name" class="guild-name">Music Bot</div>
+          <div class="conn"><span id="conn-dot" class="dot"></span><span id="conn-text">подключение…</span></div>
+        </div>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button data-tab="player" class="active">Плеер</button>
+        <button data-tab="settings">Настройки</button>
+        <button data-tab="status">Статус</button>
+        <button data-tab="logs">Логи</button>
+      </nav>
+      <button id="logout" class="btn ghost small" title="Выйти">Выйти</button>
+    </header>
+
+    <main>
+      <!-- Плеер -->
+      <section id="tab-player" class="tab active">
+        <div class="player-grid">
+          <div class="card now">
+            <div class="art-wrap"><img id="np-art" class="art" alt=""><div id="np-art-empty" class="art empty">🎵</div></div>
+            <div class="np-meta">
+              <div id="np-source" class="badge"></div>
+              <a id="np-title" class="np-title" target="_blank" rel="noopener">Ничего не играет</a>
+              <div id="np-author" class="muted">Добавь трек ниже или командой /play</div>
+              <div id="np-requester" class="tiny muted"></div>
+            </div>
+            <div class="progress">
+              <span id="np-pos" class="time">0:00</span>
+              <div id="np-bar" class="bar" title="Нажми, чтобы перемотать"><div id="np-fill" class="fill"></div></div>
+              <span id="np-dur" class="time">0:00</span>
+            </div>
+            <div class="controls">
+              <button class="ctl" data-act="previous" title="Предыдущий">⏮</button>
+              <button class="ctl big" id="btn-toggle" data-act="toggle" title="Пауза / продолжить">⏯</button>
+              <button class="ctl" data-act="skip" title="Следующий">⏭</button>
+              <button class="ctl" data-act="shuffle" title="Перемешать">🔀</button>
+              <button class="ctl danger" data-act="stop" title="Стоп">⏹</button>
+            </div>
+            <div class="toggles">
+              <button class="chip" id="t-loopq" title="Повтор очереди">🔁 Очередь</button>
+              <button class="chip" id="t-loopt" title="Повтор трека">🔂 Трек</button>
+              <button class="chip" id="t-autoplay" title="Похожие треки после очереди">♾️ Автоплей</button>
+            </div>
+            <div class="volume">
+              <span>🔈</span>
+              <input id="vol" type="range" min="0" max="150" step="1">
+              <span id="vol-val" class="time">60%</span>
+            </div>
+          </div>
+
+          <div class="col">
+            <form id="add-form" class="card add">
+              <div class="add-row">
+                <div class="search-box">
+                  <input id="add-query" placeholder="Название или ссылка: YouTube, Spotify, SoundCloud, Яндекс, VK, Apple Music" autocomplete="off">
+                  <div id="suggest" class="suggest hidden"></div>
+                </div>
+                <select id="add-source" title="Где искать"></select>
+              </div>
+              <div class="add-row">
+                <label class="check"><input id="add-next" type="checkbox"> Следующим</label>
+                <select id="add-voice" class="hidden" title="Голосовой канал"></select>
+                <button class="btn primary" type="submit">Добавить</button>
+              </div>
+            </form>
+
+            <div class="card queue">
+              <div class="queue-head">
+                <div><strong>Очередь</strong> <span id="q-info" class="muted"></span></div>
+                <button id="q-clear" class="btn ghost small">Очистить</button>
+              </div>
+              <ol id="q-list" class="q-list"></ol>
+              <div id="q-empty" class="empty-note">Очередь пуста</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Настройки -->
+      <section id="tab-settings" class="tab">
+        <form id="settings-form" class="settings">
+          <div class="card">
+            <h2>Воспроизведение</h2>
+            <label class="field"><span>Громкость по умолчанию, %</span><input name="defaultVolume" type="number" min="1" max="150"></label>
+            <label class="field"><span>Максимальная громкость, %</span><input name="maxVolume" type="number" min="10" max="200"></label>
+            <label class="field"><span>Шаг кнопок громкости, %</span><input name="volumeStep" type="number" min="1" max="50"></label>
+            <label class="field"><span>Площадка поиска по умолчанию</span><select name="defaultSource"></select></label>
+            <label class="field switch"><span>Автоплей (похожие треки после очереди)</span><input name="autoplay" type="checkbox"></label>
+          </div>
+          <div class="card">
+            <h2>Каналы и 24/7</h2>
+            <label class="field switch"><span>Режим 24/7 — не выходить из канала</span><input name="stay247" type="checkbox"></label>
+            <label class="field"><span>Голосовой канал для 24/7</span><select name="stay247ChannelId" data-kind="voice"></select></label>
+            <label class="field"><span>Канал для мини-плеера</span><select name="musicTextChannelId" data-kind="text"></select></label>
+            <label class="field"><span>Выйти после конца очереди через, сек</span><input name="leaveOnQueueEndSec" type="number" min="0" max="3600"></label>
+            <label class="field"><span>Выйти из пустого канала через, сек</span><input name="leaveOnEmptyChannelSec" type="number" min="0" max="3600"></label>
+            <label class="field switch"><span>Пауза, когда все вышли из канала</span><input name="pauseOnEmptyChannel" type="checkbox"></label>
+          </div>
+          <div class="card">
+            <h2>Лимиты</h2>
+            <label class="field"><span>Максимум треков в очереди</span><input name="maxQueueSize" type="number" min="10" max="5000"></label>
+            <label class="field"><span>Максимум треков из одного плейлиста</span><input name="maxPlaylistTracks" type="number" min="1" max="2000"></label>
+            <label class="field"><span>Максимальная длина трека, мин (0 — без лимита)</span><input name="maxTrackMinutes" type="number" min="0" max="1440"></label>
+          </div>
+          <div class="card">
+            <h2>Мини-плеер в Discord</h2>
+            <label class="field"><span>Цвет полосы</span><input name="accentColor" type="color"></label>
+            <label class="field"><span>Обновлять прогресс каждые, сек</span><input name="playerRefreshSec" type="number" min="5" max="60"></label>
+            <label class="field switch"><span>Показывать блок «Дальше»</span><input name="showUpNext" type="checkbox"></label>
+          </div>
+          <div class="card">
+            <h2>Мониторинг</h2>
+            <label class="field"><span>Вебхук Discord для уведомлений о сбоях</span><input name="alertWebhookUrl" type="url" placeholder="https://discord.com/api/webhooks/…"></label>
+            <p class="hint">Канал → Настройки → Интеграции → Вебхуки → Новый вебхук → Копировать URL. Бот пришлёт сообщение, если упадёт аудиосервер или YouTube попросит вход.</p>
+            <button type="button" id="alert-test" class="btn ghost small">Отправить тестовое уведомление</button>
+          </div>
+          <div class="save-bar">
+            <span id="settings-dirty" class="muted"></span>
+            <button class="btn primary" type="submit">Сохранить</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Статус -->
+      <section id="tab-status" class="tab">
+        <div class="status-grid">
+          <div class="card"><h2>Бот</h2><dl id="st-bot" class="kv"></dl></div>
+          <div class="card"><h2>Аудиосервер (Lavalink)</h2><dl id="st-ll" class="kv"></dl></div>
+          <div class="card wide">
+            <div class="queue-head"><h2>Площадки</h2><button id="diag-run" class="btn primary small">Проверить площадки</button></div>
+            <div id="st-sources" class="chips"></div>
+            <table id="diag" class="diag hidden"><thead><tr><th>Площадка</th><th>Результат</th><th>Время</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Логи -->
+      <section id="tab-logs" class="tab">
+        <div class="card">
+          <div class="queue-head">
+            <h2>Последние события</h2>
+            <label class="check"><input id="logs-auto" type="checkbox" checked> Обновлять</label>
+          </div>
+          <div id="logs" class="logs"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
