@@ -4,15 +4,19 @@ import {
   ButtonStyle,
   ContainerBuilder,
   MessageFlags,
+  StringSelectMenuBuilder,
   TextDisplayBuilder,
 } from "discord.js";
-import { formatDuration, tracksWord } from "../format.js";
+import { formatDuration, tracksWord, truncate } from "../format.js";
 import type { PlayerSnapshot } from "../music/types.js";
 import type { Settings } from "../settings.js";
+import { sourceInfo } from "../sources.js";
+import { icon } from "./emoji.js";
 import { hexToInt, trackLine } from "./player-view.js";
 
 export const QUEUE_PAGE_SIZE = 10;
 export const QUEUE_PAGE_PREFIX = "q:page:";
+export const QUEUE_JUMP_ID = "q:jump";
 
 export function buildQueueMessage(snap: PlayerSnapshot, settings: Settings, page: number) {
   const pages = Math.max(1, Math.ceil(snap.queue.length / QUEUE_PAGE_SIZE));
@@ -20,9 +24,9 @@ export function buildQueueMessage(snap: PlayerSnapshot, settings: Settings, page
   const start = (p - 1) * QUEUE_PAGE_SIZE;
   const items = snap.queue.slice(start, start + QUEUE_PAGE_SIZE);
 
-  const lines: string[] = ["### 📜 Очередь"];
+  const lines: string[] = ["### Очередь"];
   if (snap.current) lines.push(`**Сейчас:** ${trackLine(snap.current, 80)}`, "");
-  if (items.length === 0) lines.push("Очередь пуста. Добавь треки командой `/play`.");
+  if (items.length === 0) lines.push("Очередь пуста. Добавь треки командой `/play` или кнопкой «Добавить трек».");
   else lines.push(...items.map((t, i) => `\`${start + i + 1}.\` ${trackLine(t, 70)}${t.requester && /^\d+$/.test(t.requester.id) ? ` · <@${t.requester.id}>` : ""}`));
   lines.push("", `-# ${tracksWord(snap.queue.length)} · ${formatDuration(snap.queueDuration)} · страница ${p}/${pages}`);
 
@@ -30,18 +34,36 @@ export function buildQueueMessage(snap: PlayerSnapshot, settings: Settings, page
     .setAccentColor(hexToInt(settings.accentColor))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n").slice(0, 3900)));
 
+  if (items.length > 0) {
+    container.addActionRowComponents(
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(QUEUE_JUMP_ID)
+          .setPlaceholder("Перейти к треку…")
+          .addOptions(
+            items.map((t, i) => ({
+              label: truncate(`${start + i + 1}. ${t.title}`, 100),
+              description: truncate(`${t.author} · ${t.isStream ? "LIVE" : formatDuration(t.duration)}`, 100),
+              value: String(start + i + 1),
+              emoji: sourceInfo(t.sourceName).emoji,
+            })),
+          ),
+      ),
+    );
+  }
+
   // customId: q:page:<страница>:<роль> — роль делает id уникальными внутри сообщения.
-  const nav = (target: number, role: string, emoji: string, disabled = false) =>
+  const nav = (target: number, role: string, key: "prev" | "next" | "repeat", disabled = false) =>
     new ButtonBuilder()
       .setCustomId(`${QUEUE_PAGE_PREFIX}${target}:${role}`)
-      .setEmoji(emoji)
+      .setEmoji(icon(key))
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(disabled);
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...(pages > 1 ? [nav(1, "first", "⏮", p === 1), nav(p - 1, "prev", "◀️", p === 1)] : []),
-      nav(p, "refresh", "🔄"),
-      ...(pages > 1 ? [nav(p + 1, "next", "▶️", p === pages), nav(pages, "last", "⏭", p === pages)] : []),
+      ...(pages > 1 ? [nav(p - 1, "prev", "prev", p === 1)] : []),
+      nav(p, "refresh", "repeat"),
+      ...(pages > 1 ? [nav(p + 1, "next", "next", p === pages)] : []),
     ),
   );
   return { components: [container], flags: MessageFlags.IsComponentsV2 as const };

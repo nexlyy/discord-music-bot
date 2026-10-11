@@ -66,6 +66,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private leaveReason: "queue" | "empty" | null = null;
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
+  private trackNumber = 0;
 
   constructor(
     private readonly client: Client,
@@ -171,6 +172,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       queue: queue.map(toTrackView),
       queueDuration: queue.reduce((sum, t) => sum + (t.info.duration ?? 0), 0),
       previousCount: p?.queue.previous.length ?? 0,
+      trackNumber: p?.queue.current ? this.trackNumber : 0,
       updatedAt: Date.now(),
     };
   }
@@ -219,6 +221,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       if (result.loadType === "playlist") {
         tracks = result.tracks.slice(0, s.maxPlaylistTracks);
         playlistName = result.playlist?.name ?? result.playlist?.title ?? "Плейлист";
+        const playlistUrl = isUrl(req.query) ? req.query.trim() : null;
+        for (const t of tracks) t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl };
       } else {
         tracks = result.tracks.slice(0, 1);
       }
@@ -523,6 +527,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const lm = this.lavalink;
 
     lm.on("trackStart", (player) => {
+      this.trackNumber++;
       this.cancelLeave("queue");
       log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
       this.emit("update", "trackStart");
@@ -546,6 +551,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       log.info("Плеер уничтожен:", reason ?? "");
       this.cancelLeave();
       this.autoPausedForEmpty = false;
+      this.trackNumber = 0;
       this.emit("update", "destroy");
       // В режиме 24/7 возвращаемся в канал (если нас не выгнали вручную — тогда канал сменится через настройки).
       if (this.settings.get().stay247) setTimeout(() => void this.ensureStay247(), 3_000);

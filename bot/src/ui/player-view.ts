@@ -3,33 +3,43 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
   MessageFlags,
-  SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   StringSelectMenuBuilder,
   TextDisplayBuilder,
-  ThumbnailBuilder,
 } from "discord.js";
 import type { Settings } from "../settings.js";
-import { escapeMd, formatDuration, progressBar, tracksWord, truncate } from "../format.js";
+import { escapeMd, formatDuration, truncate } from "../format.js";
 import type { PlayerSnapshot, TrackView } from "../music/types.js";
-import { sourceInfo } from "../sources.js";
+import { SEARCH_SOURCES, isSearchSourceKey, sourceInfo } from "../sources.js";
+import { icon, type IconKey } from "./emoji.js";
 
 export const PLAYER_IDS = {
+  shuffle: "mp:shuffle",
   prev: "mp:prev",
   toggle: "mp:toggle",
   skip: "mp:skip",
-  shuffle: "mp:shuffle",
-  stop: "mp:stop",
-  loopQueue: "mp:loopq",
-  loopTrack: "mp:loopt",
-  autoplay: "mp:autoplay",
-  volDown: "mp:voldown",
-  volUp: "mp:volup",
   queue: "mp:queue",
+  options: "mp:opts",
   lyrics: "mp:lyrics",
-  jump: "mp:jump",
+  add: "mp:add",
+  settings: "mp:settings",
+  leave: "mp:leave",
+} as const;
+
+/** Значения пунктов меню «Параметры плеера». */
+export const OPTION_VALUES = {
+  loopQueue: "loopq",
+  loopTrack: "loopt",
+  autoplay: "autoplay",
+  volDown: "voldown",
+  volUp: "volup",
+  stay247: "247",
+  clear: "clear",
+  stop: "stop",
 } as const;
 
 export function hexToInt(hex: string): number {
@@ -45,24 +55,48 @@ export function trackLine(t: TrackView, maxLen = 70): string {
 /** Подпись «кто заказал»: служебные заказчики (автоплей, панель) не являются пользователями Discord. */
 export function requesterLabel(r: TrackView["requester"]): string | null {
   if (!r) return null;
-  if (r.id === "autoplay") return "из автоплея";
-  if (r.id === "panel") return "из веб-панели";
-  return `заказал <@${r.id}>`;
+  if (r.id === "autoplay") return "автоплей";
+  if (r.id === "panel") return "веб-панель";
+  return `<@${r.id}>`;
 }
 
-function repeatLabel(mode: string): string | null {
-  if (mode === "queue") return "🔁 Повтор очереди";
-  if (mode === "track") return "🔂 Повтор трека";
-  return null;
-}
-
-function btn(id: string, emoji: string, style = ButtonStyle.Secondary, disabled = false, label?: string) {
-  const b = new ButtonBuilder().setCustomId(id).setEmoji(emoji).setStyle(style).setDisabled(disabled);
-  if (label) b.setLabel(label);
+function iconButton(id: string, key: IconKey, opts: { label?: string; disabled?: boolean; active?: boolean } = {}) {
+  const b = new ButtonBuilder()
+    .setCustomId(id)
+    .setEmoji(icon(key))
+    .setStyle(opts.active ? ButtonStyle.Primary : ButtonStyle.Secondary)
+    .setDisabled(opts.disabled ?? false);
+  if (opts.label) b.setLabel(opts.label);
   return b;
 }
 
-/** Мини-плеер (Components V2). */
+const onOff = (v: boolean) => (v ? "Сейчас: включено" : "Сейчас: выключено");
+
+function optionsMenu(snap: PlayerSnapshot, settings: Settings) {
+  return new StringSelectMenuBuilder()
+    .setCustomId(PLAYER_IDS.options)
+    .setPlaceholder("Параметры плеера")
+    .addOptions(
+      { label: "Повтор очереди", value: OPTION_VALUES.loopQueue, description: onOff(snap.repeatMode === "queue"), emoji: icon("repeat") },
+      { label: "Повтор трека", value: OPTION_VALUES.loopTrack, description: onOff(snap.repeatMode === "track"), emoji: icon("repeat1") },
+      { label: "Автоплей", value: OPTION_VALUES.autoplay, description: `Похожие треки после очереди. ${onOff(snap.autoplay)}`, emoji: icon("autoplay") },
+      { label: `Тише (−${settings.volumeStep}%)`, value: OPTION_VALUES.volDown, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("voldown") },
+      { label: `Громче (+${settings.volumeStep}%)`, value: OPTION_VALUES.volUp, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("volup") },
+      { label: "Режим 24/7", value: OPTION_VALUES.stay247, description: `Не выходить из канала. ${onOff(snap.stay247)}`, emoji: icon("moon") },
+      { label: "Очистить очередь", value: OPTION_VALUES.clear, description: `В очереди: ${snap.queue.length}`, emoji: icon("queue") },
+      { label: "Остановить", value: OPTION_VALUES.stop, description: snap.stay247 ? "Очистить очередь, остаться в канале" : "Очистить очередь и выйти", emoji: icon("stop") },
+    );
+}
+
+function bottomRow() {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    iconButton(PLAYER_IDS.lyrics, "lyrics", { label: "Текст песни" }),
+    iconButton(PLAYER_IDS.add, "search", { label: "Добавить трек" }),
+    iconButton(PLAYER_IDS.settings, "settings"),
+  );
+}
+
+/** Мини-плеер (Components V2) в стиле: шапка, обложка, название, кнопки, меню параметров. */
 export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
   const container = new ContainerBuilder().setAccentColor(hexToInt(settings.accentColor));
   const cur = snap.current;
@@ -71,99 +105,97 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         [
-          "### ⏹ Очередь пуста",
-          snap.autoplay ? "Автоплей включён, но похожих треков не нашлось." : "Добавь трек командой `/play`.",
+          "### Очередь пуста",
+          snap.autoplay ? "Автоплей включён, но похожих треков не нашлось." : "Добавь трек кнопкой ниже или командой `/play`.",
           snap.stay247 ? "-# Режим 24/7: бот останется в канале." : `-# Бот выйдет из канала через ${settings.leaveOnQueueEndSec} с, если ничего не добавить.`,
         ].join("\n"),
       ),
     );
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        btn(PLAYER_IDS.prev, "⏮", ButtonStyle.Secondary, snap.previousCount === 0),
-        btn(PLAYER_IDS.autoplay, "♾️", snap.autoplay ? ButtonStyle.Success : ButtonStyle.Secondary, false, "Автоплей"),
-        btn(PLAYER_IDS.stop, "⏹", ButtonStyle.Danger, false, snap.stay247 ? "Стоп" : "Выйти"),
+        iconButton(PLAYER_IDS.prev, "prev", { disabled: snap.previousCount === 0 }),
+        iconButton(PLAYER_IDS.add, "search", { label: "Добавить трек" }),
+        iconButton(PLAYER_IDS.settings, "settings"),
+        iconButton(PLAYER_IDS.leave, "stop", { label: snap.stay247 ? "Выключить 24/7 и выйти" : "Выйти" }),
       ),
     );
     return { components: [container], flags: MessageFlags.IsComponentsV2 as const };
   }
 
+  // Шапка: номер трека · кто заказал · откуда
   const src = sourceInfo(cur.sourceName);
-  const title = truncate(cur.title, 120);
-  const head = [
-    `-# ${snap.paused ? "⏸ На паузе" : "🎶 Сейчас играет"} · ${src.emoji} ${src.label}`,
-    cur.uri ? `### [${escapeMd(title)}](${cur.uri})` : `### ${escapeMd(title)}`,
-    `**${escapeMd(truncate(cur.author, 80))}**`,
-  ].join("\n");
+  const from = cur.playlistName
+    ? `Плейлист: ${cur.playlistUrl ? `[${escapeMd(truncate(cur.playlistName, 60))}](${cur.playlistUrl})` : escapeMd(truncate(cur.playlistName, 60))}`
+    : cur.uri
+      ? `[${src.label}](${cur.uri})`
+      : src.label;
+  const head = [`\`${String(snap.trackNumber || 1).padStart(2, "0")}\``, requesterLabel(cur.requester), from].filter(Boolean).join(" · ");
+  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${head}`));
 
   if (cur.artworkUrl) {
-    container.addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(head))
-        .setThumbnailAccessory(new ThumbnailBuilder().setURL(cur.artworkUrl).setDescription(truncate(cur.title, 100))),
+    container.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(cur.artworkUrl).setDescription(truncate(cur.title, 100))),
     );
-  } else {
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(head));
   }
 
-  const timeline = cur.isStream
-    ? "`🔴 LIVE`"
-    : `\`${formatDuration(snap.position)}\` ${progressBar(snap.position, cur.duration, 18)} \`${formatDuration(cur.duration)}\``;
-  const status = [
-    `🔊 ${snap.volume}%`,
-    repeatLabel(snap.repeatMode),
-    snap.autoplay ? "♾️ Автоплей" : null,
-    snap.stay247 ? "🌙 24/7" : null,
-    requesterLabel(cur.requester),
+  const state = [
+    cur.isStream ? "🔴 LIVE" : formatDuration(cur.duration),
+    snap.paused ? "на паузе" : null,
+    snap.repeatMode === "track" ? "повтор трека" : snap.repeatMode === "queue" ? "повтор очереди" : null,
+    snap.stay247 ? "24/7" : null,
   ]
     .filter(Boolean)
     .join(" · ");
-  container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${timeline}\n-# ${status}`));
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`### ${escapeMd(truncate(cur.title, 150))}\n${escapeMd(truncate(cur.author, 150))}\n-# ${state}`),
+  );
 
   if (settings.showUpNext && snap.queue.length > 0) {
-    const next = snap.queue.slice(0, 3).map((t, i) => `\`${i + 1}.\` ${trackLine(t, 60)}`);
-    const more = snap.queue.length > 3 ? `\n-# и ещё ${snap.queue.length - 3} · всего ${tracksWord(snap.queue.length)}, ${formatDuration(snap.queueDuration)}` : "";
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**Дальше**\n${next.join("\n")}${more}`));
+    const next = snap.queue.slice(0, 3).map((t, i) => `-# \`${i + 1}.\` ${trackLine(t, 60)}`);
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(next.join("\n")));
   }
 
   container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
-  const noQueue = snap.queue.length === 0;
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      btn(PLAYER_IDS.prev, "⏮", ButtonStyle.Secondary, snap.previousCount === 0),
-      btn(PLAYER_IDS.toggle, snap.paused ? "▶️" : "⏸", snap.paused ? ButtonStyle.Success : ButtonStyle.Primary),
-      btn(PLAYER_IDS.skip, "⏭"),
-      btn(PLAYER_IDS.shuffle, "🔀", ButtonStyle.Secondary, snap.queue.length < 2),
-      btn(PLAYER_IDS.stop, "⏹", ButtonStyle.Danger),
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      btn(PLAYER_IDS.loopQueue, "🔁", snap.repeatMode === "queue" ? ButtonStyle.Success : ButtonStyle.Secondary),
-      btn(PLAYER_IDS.loopTrack, "🔂", snap.repeatMode === "track" ? ButtonStyle.Success : ButtonStyle.Secondary),
-      btn(PLAYER_IDS.autoplay, "♾️", snap.autoplay ? ButtonStyle.Success : ButtonStyle.Secondary),
-      btn(PLAYER_IDS.volDown, "🔉", ButtonStyle.Secondary, snap.volume <= 0),
-      btn(PLAYER_IDS.volUp, "🔊", ButtonStyle.Secondary, snap.volume >= settings.maxVolume),
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      btn(PLAYER_IDS.queue, "📜", ButtonStyle.Secondary, false, `Очередь${noQueue ? "" : ` (${snap.queue.length})`}`),
-      btn(PLAYER_IDS.lyrics, "🎤", ButtonStyle.Secondary, false, "Текст песни"),
+      iconButton(PLAYER_IDS.shuffle, "shuffle", { disabled: snap.queue.length < 2 }),
+      iconButton(PLAYER_IDS.prev, "prev", { disabled: snap.previousCount === 0 }),
+      iconButton(PLAYER_IDS.toggle, snap.paused ? "play" : "pause"),
+      iconButton(PLAYER_IDS.skip, "next"),
+      iconButton(PLAYER_IDS.queue, "queue"),
     ),
   );
+  container.addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(optionsMenu(snap, settings)));
+  container.addActionRowComponents(bottomRow());
 
-  if (!noQueue) {
-    const select = new StringSelectMenuBuilder()
-      .setCustomId(PLAYER_IDS.jump)
-      .setPlaceholder("⏩ Перейти к треку из очереди…")
-      .addOptions(
-        snap.queue.slice(0, 25).map((t, i) => ({
-          label: truncate(`${i + 1}. ${t.title}`, 100),
-          description: truncate(`${t.author} · ${t.isStream ? "LIVE" : formatDuration(t.duration)}`, 100),
-          value: String(i + 1),
-          emoji: sourceInfo(t.sourceName).emoji,
-        })),
-      );
-    container.addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
-  }
+  return { components: [container], flags: MessageFlags.IsComponentsV2 as const };
+}
 
+export const SETTINGS_IDS = { volDown: "st:voldown", volUp: "st:volup", refresh: "st:refresh" } as const;
+
+/** Карточка ⚙ (видна только нажавшему): состояние плеера и быстрая громкость. */
+export function buildSettingsCard(snap: PlayerSnapshot, settings: Settings) {
+  const repeat = snap.repeatMode === "queue" ? "очередь" : snap.repeatMode === "track" ? "трек" : "выключен";
+  const lines = [
+    "### Параметры",
+    `Громкость: **${snap.volume}%** (максимум ${settings.maxVolume}%)`,
+    `Повтор: **${repeat}**`,
+    `Автоплей: **${snap.autoplay ? "включён" : "выключен"}**`,
+    `Режим 24/7: **${snap.stay247 ? "включён" : "выключен"}**`,
+    `Поиск по умолчанию: **${isSearchSourceKey(settings.defaultSource) ? SEARCH_SOURCES[settings.defaultSource].label : settings.defaultSource}**`,
+    "",
+    "-# Остальное (каналы, лимиты, цвет плеера, мониторинг) — в веб-панели, команда `/panel` подскажет, как её открыть.",
+  ];
+  const container = new ContainerBuilder()
+    .setAccentColor(hexToInt(settings.accentColor))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n")))
+    .addActionRowComponents(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        iconButton(SETTINGS_IDS.volDown, "voldown", { label: `−${settings.volumeStep}%`, disabled: !snap.active || snap.volume <= 0 }),
+        iconButton(SETTINGS_IDS.volUp, "volup", { label: `+${settings.volumeStep}%`, disabled: !snap.active || snap.volume >= settings.maxVolume }),
+        iconButton(SETTINGS_IDS.refresh, "repeat", { label: "Обновить" }),
+      ),
+    );
   return { components: [container], flags: MessageFlags.IsComponentsV2 as const };
 }

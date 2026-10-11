@@ -10,6 +10,7 @@ import { createAutoplay } from "./music/autoplay.js";
 import { MusicService } from "./music/service.js";
 import { SettingsStore } from "./settings.js";
 import { LiveLyrics } from "./ui/lyrics-view.js";
+import { syncEmojis } from "./ui/emoji.js";
 import { PlayerMessage } from "./ui/player-message.js";
 import { startPanel } from "./web/server.js";
 
@@ -61,6 +62,7 @@ client.once(Events.ClientReady, async (c) => {
     await c.application.commands.set([]).catch(() => undefined);
   }
   c.user.setActivity("/play", { type: ActivityType.Custom });
+  await syncEmojis(c);
   await music.init();
   void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**.`, 60_000);
 });

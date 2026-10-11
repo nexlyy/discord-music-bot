@@ -13,6 +13,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 COPY public ./public
+COPY assets ./assets
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 8090

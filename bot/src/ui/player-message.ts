@@ -58,6 +58,12 @@ export class PlayerMessage {
     this.busy = this.busy.then(task).catch((e) => log.warn("Ошибка обновления мини-плеера:", e));
   }
 
+  /** Перерисовать плеер, даже если состояние не поменялось (например, сбросить выбор в меню). */
+  refresh() {
+    this.lastJson = "";
+    this.enqueue(() => this.render(false));
+  }
+
   /** Отправить плеер заново внизу канала (например, по команде /nowplaying). */
   bump() {
     this.resendNext = false;

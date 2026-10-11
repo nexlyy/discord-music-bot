@@ -36,11 +36,11 @@ export const settingsSchema = z.object({
   /** Максимальная длина трека в минутах (0 — без ограничений) */
   maxTrackMinutes: z.number().int().min(0).max(1440).default(0),
   /** Цвет полосы мини-плеера */
-  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#8B5CF6"),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#D4783A"),
   /** Как часто обновлять прогресс в мини-плеере, сек */
   playerRefreshSec: z.number().int().min(5).max(60).default(10),
   /** Показывать список «Дальше» в мини-плеере */
-  showUpNext: z.boolean().default(true),
+  showUpNext: z.boolean().default(false),
   /** Вебхук Discord для уведомлений о сбоях */
   alertWebhookUrl: z.url().nullable().default(null),
 });

@@ -1,10 +1,16 @@
 import {
+  LabelBuilder,
   MessageFlags,
+  ModalBuilder,
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type GuildMember,
   type Interaction,
+  type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
   type User,
 } from "discord.js";
@@ -15,12 +21,12 @@ import { createLogger } from "../logger.js";
 import type { MusicService, PlayResult } from "../music/service.js";
 import { MusicError, type Requester } from "../music/types.js";
 import type { SettingsStore } from "../settings.js";
-import { SEARCH_SOURCES, isSearchSourceKey, isUrl, sourceInfo, type SearchSourceKey } from "../sources.js";
+import { SEARCH_SOURCES, SEARCH_SOURCE_KEYS, isSearchSourceKey, isUrl, sourceInfo, type SearchSourceKey } from "../sources.js";
 import type { LiveLyrics } from "../ui/lyrics-view.js";
 import { LYRICS_IDS } from "../ui/lyrics-view.js";
 import type { PlayerMessage } from "../ui/player-message.js";
-import { PLAYER_IDS } from "../ui/player-view.js";
-import { QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
+import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
+import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
 import type { TrackCache } from "./track-cache.js";
 
 const log = createLogger("commands");
@@ -34,7 +40,7 @@ export interface Ctx {
   cache: TrackCache;
 }
 
-type Replyable = ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction;
+type Replyable = ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
 
 function toRequester(user: User): Requester {
   return { id: user.id, username: user.globalName ?? user.username, avatar: user.displayAvatarURL() };
@@ -263,8 +269,26 @@ async function runAutocomplete(i: AutocompleteInteraction, ctx: Ctx) {
   }
 
   if (isUrl(q)) {
-    const value = q.length <= 100 ? q : ctx.cache.putText(q);
-    return i.respond([{ name: truncate(`🔗 ${q}`, 100), value }]);
+    // Загружаем ссылку и показываем, что по ней найдено. Если выбрать вариант, /play получит готовый трек.
+    const raw = q.length <= 100 ? q : ctx.cache.putText(q);
+    const linkChoice = { name: truncate(`🔗 ${q}`, 100), value: raw };
+    try {
+      let result = ctx.cache.getSearch(`url:${q}`);
+      if (!result) {
+        result = await withTimeout(ctx.music.search(q, undefined, toRequester(i.user)), 2300);
+        ctx.cache.putSearch(`url:${q}`, result);
+      }
+      if (result.loadType === "playlist") {
+        const name = result.playlist?.name ?? "Плейлист";
+        return i.respond([{ name: truncate(`📃 ${name} — ${tracksWord(result.tracks.length)}`, 100), value: raw }]);
+      }
+      const t = result.tracks[0];
+      if (!t) return i.respond([linkChoice]);
+      const dur = t.info.isStream ? "LIVE" : formatDuration(t.info.duration);
+      return i.respond([{ name: truncate(`${sourceInfo(t.info.sourceName).emoji} ${t.info.author} — ${t.info.title} · ${dur}`, 100), value: ctx.cache.putTrack(t) }]);
+    } catch {
+      return i.respond([linkChoice]);
+    }
   }
 
   const sourceOpt = i.options.getString("площадка");
@@ -290,6 +314,77 @@ async function runAutocomplete(i: AutocompleteInteraction, ctx: Ctx) {
 
 /* --------------------------- кнопки и меню --------------------------- */
 
+const ADD_MODAL_ID = "mp:addmodal";
+
+function buildAddModal(ctx: Ctx) {
+  const def = ctx.settings.get().defaultSource;
+  return new ModalBuilder()
+    .setCustomId(ADD_MODAL_ID)
+    .setTitle("Добавить трек")
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel("Название или ссылка")
+        .setDescription("YouTube, Spotify, SoundCloud, Apple Music, Яндекс, VK — трек, альбом или плейлист")
+        .setTextInputComponent(
+          new TextInputBuilder().setCustomId("query").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500).setPlaceholder("Например: Кино — Группа крови"),
+        ),
+      new LabelBuilder()
+        .setLabel("Где искать по названию")
+        .setStringSelectMenuComponent(
+          new StringSelectMenuBuilder()
+            .setCustomId("source")
+            .addOptions(SEARCH_SOURCE_KEYS.map((k) => ({ label: SEARCH_SOURCES[k].label, value: k, default: k === def }))),
+        ),
+      new LabelBuilder()
+        .setLabel("Куда поставить")
+        .setStringSelectMenuComponent(
+          new StringSelectMenuBuilder()
+            .setCustomId("position")
+            .addOptions({ label: "В конец очереди", value: "end", default: true }, { label: "Следующим", value: "next" }),
+        ),
+    );
+}
+
+async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
+  const { music, settings } = ctx;
+  switch (i.values[0]) {
+    case OPTION_VALUES.loopQueue:
+      await music.toggleRepeat("queue");
+      break;
+    case OPTION_VALUES.loopTrack:
+      await music.toggleRepeat("track");
+      break;
+    case OPTION_VALUES.autoplay:
+      music.setAutoplayEnabled(!settings.get().autoplay);
+      break;
+    case OPTION_VALUES.volDown:
+      await music.changeVolume(-settings.get().volumeStep);
+      break;
+    case OPTION_VALUES.volUp:
+      await music.changeVolume(settings.get().volumeStep);
+      break;
+    case OPTION_VALUES.stay247: {
+      if (settings.get().stay247) {
+        settings.update({ stay247: false });
+      } else {
+        const voice = music.player?.voiceChannelId ?? userVoiceChannel(i);
+        if (!voice) throw new MusicError("Зайди в голосовой канал, где бот должен дежурить.");
+        settings.update({ stay247: true, stay247ChannelId: voice });
+      }
+      music.emit("update", "settings");
+      break;
+    }
+    case OPTION_VALUES.clear:
+      await music.clear();
+      break;
+    case OPTION_VALUES.stop:
+      await music.stop();
+      break;
+  }
+  // Меню должно сброситься на подсказку, даже если состояние не изменилось.
+  ctx.playerMessage.refresh();
+}
+
 async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, ctx: Ctx) {
   const { music, settings } = ctx;
   const id = i.customId;
@@ -297,6 +392,12 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
   if (id.startsWith(QUEUE_PAGE_PREFIX)) {
     const page = Number(id.slice(QUEUE_PAGE_PREFIX.length).split(":")[0]) || 1;
     await i.update(buildQueueMessage(music.snapshot(), settings.get(), page));
+    return;
+  }
+  if (id === QUEUE_JUMP_ID && i.isStringSelectMenu()) {
+    assertSameChannel(i, music);
+    await music.jump(Number(i.values[0]));
+    await i.update(buildQueueMessage(music.snapshot(), settings.get(), 1));
     return;
   }
 
@@ -312,9 +413,32 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
     return say(i, truncate(text, 1950));
   }
 
-  if (!id.startsWith("mp:")) return;
-  assertSameChannel(i, music);
+  if (id.startsWith("st:")) {
+    if (id === SETTINGS_IDS.volDown || id === SETTINGS_IDS.volUp) {
+      assertSameChannel(i, music);
+      await music.changeVolume((id === SETTINGS_IDS.volUp ? 1 : -1) * settings.get().volumeStep);
+    }
+    await i.update(buildSettingsCard(music.snapshot(), settings.get()));
+    return;
+  }
 
+  if (!id.startsWith("mp:")) return;
+
+  // Просмотр очереди, настройки и добавление доступны всем, остальное — только из канала бота.
+  if (id === PLAYER_IDS.queue) {
+    await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), 1), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    return;
+  }
+  if (id === PLAYER_IDS.settings) {
+    await i.reply({ ...buildSettingsCard(music.snapshot(), settings.get()), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+    return;
+  }
+  if (id === PLAYER_IDS.add) {
+    await i.showModal(buildAddModal(ctx));
+    return;
+  }
+
+  assertSameChannel(i, music);
   switch (id) {
     case PLAYER_IDS.toggle:
       await music.togglePause();
@@ -328,28 +452,13 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
     case PLAYER_IDS.shuffle:
       await music.shuffle();
       break;
-    case PLAYER_IDS.stop:
-      if (!music.player?.queue.current && !settings.get().stay247) await music.leave();
-      else await music.stop();
+    case PLAYER_IDS.leave:
+      if (settings.get().stay247) settings.update({ stay247: false });
+      await music.leave();
       break;
-    case PLAYER_IDS.loopQueue:
-      await music.toggleRepeat("queue");
+    case PLAYER_IDS.options:
+      if (i.isStringSelectMenu()) await runOption(i, ctx);
       break;
-    case PLAYER_IDS.loopTrack:
-      await music.toggleRepeat("track");
-      break;
-    case PLAYER_IDS.autoplay:
-      music.setAutoplayEnabled(!settings.get().autoplay);
-      break;
-    case PLAYER_IDS.volDown:
-      await music.changeVolume(-settings.get().volumeStep);
-      break;
-    case PLAYER_IDS.volUp:
-      await music.changeVolume(settings.get().volumeStep);
-      break;
-    case PLAYER_IDS.queue:
-      await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), 1), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-      return;
     case PLAYER_IDS.lyrics: {
       if (ctx.lyrics.active) {
         await ctx.lyrics.close();
@@ -362,31 +471,54 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
       await ctx.lyrics.open(i.channel);
       return;
     }
-    case PLAYER_IDS.jump: {
-      if (!i.isStringSelectMenu()) return;
-      const index = Number(i.values[0]);
-      await music.jump(index);
-      break;
-    }
     default:
       return;
   }
   if (!i.replied && !i.deferred) await i.deferUpdate();
 }
 
+async function runModal(i: ModalSubmitInteraction, ctx: Ctx) {
+  if (i.customId !== ADD_MODAL_ID) return;
+  const voice = userVoiceChannel(i);
+  if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  const sourceValue = i.fields.getStringSelectValues("source")[0];
+  const result = await ctx.music.play({
+    query: i.fields.getTextInputValue("query"),
+    source: isSearchSourceKey(sourceValue) ? sourceValue : undefined,
+    voiceChannelId: voice,
+    textChannelId: i.channelId,
+    requester: toRequester(i.user),
+    next: i.fields.getStringSelectValues("position")[0] === "next",
+  });
+  await i.editReply({ content: describePlay(result), allowedMentions: { parse: [] } });
+}
+
 /* ------------------------------ диспетчер ------------------------------ */
+
+function describeCommand(i: ChatInputCommandInteraction): string {
+  const opts = i.options.data.map((o) => `${o.name}=${String(o.value ?? "").slice(0, 120)}`).join(" ");
+  return `/${i.commandName}${opts ? ` ${opts}` : ""}`;
+}
 
 export async function handleInteraction(i: Interaction, ctx: Ctx) {
   if (i.guildId !== ctx.config.DISCORD_GUILD_ID) return;
   if (i.isAutocomplete()) {
-    await runAutocomplete(i, ctx).catch((e) => log.debug("autocomplete:", e));
+    await runAutocomplete(i, ctx).catch((e) => log.warn(`Автодополнение "${String(i.options.getFocused()).slice(0, 80)}":`, e));
     return;
   }
   if (i.isChatInputCommand()) {
+    log.info(`${i.user.username}: ${describeCommand(i)}`);
     await runCommand(i, ctx).catch((e) => fail(i, e));
     return;
   }
   if (i.isButton() || i.isStringSelectMenu()) {
+    log.debug(`${i.user.username}: ${i.customId}`);
     await runComponent(i, ctx).catch((e) => fail(i, e));
+    return;
+  }
+  if (i.isModalSubmit()) {
+    log.info(`${i.user.username}: окно ${i.customId}`);
+    await runModal(i, ctx).catch((e) => fail(i, e));
   }
 }

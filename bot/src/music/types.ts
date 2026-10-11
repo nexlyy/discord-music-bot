@@ -27,6 +27,9 @@ export interface TrackView {
   artworkUrl: string | null;
   sourceName: string;
   requester: Requester | null;
+  /** Плейлист/альбом, из которого добавлен трек */
+  playlistName: string | null;
+  playlistUrl: string | null;
 }
 
 export interface PlayerSnapshot {
@@ -45,6 +48,8 @@ export interface PlayerSnapshot {
   queue: TrackView[];
   queueDuration: number;
   previousCount: number;
+  /** Порядковый номер текущего трека в сессии (1, 2, …) */
+  trackNumber: number;
   updatedAt: number;
 }
 
@@ -59,6 +64,8 @@ export function toTrackView(track: Track | UnresolvedTrack): TrackView {
     artworkUrl: info.artworkUrl ?? track.pluginInfo?.artworkUrl ?? track.pluginInfo?.albumArtUrl ?? null,
     sourceName: info.sourceName ?? "unknown",
     requester: requesterOf(track),
+    playlistName: typeof track.userData?.playlistName === "string" ? track.userData.playlistName : null,
+    playlistUrl: typeof track.userData?.playlistUrl === "string" ? track.userData.playlistUrl : null,
   };
 }
 
