@@ -44,7 +44,19 @@ plan() { # репозиторий, переменная, артефакт
   else log "$3 $new ещё не опубликован в maven, жду"; fi
 }
 
-plan lavalink-devs/youtube-source YOUTUBE_PLUGIN_VERSION "dev.lavalink.youtube:youtube-plugin"
+# youtube-plugin может стоять на snapshot (исправление ещё не в релизе). Тогда ждём релиз новее
+# YOUTUBE_PLUGIN_SNAPSHOT_BASE и только после этого возвращаемся на обычные версии.
+if [ "$(env_get YOUTUBE_PLUGIN_SNAPSHOT)" = "true" ]; then
+  base=$(env_get YOUTUBE_PLUGIN_SNAPSHOT_BASE)
+  new=$(latest_release lavalink-devs/youtube-source)
+  if [ -n "$new" ] && [ "$new" != "${base:-1.18.2}" ] && jar_exists "dev.lavalink.youtube:youtube-plugin" "$new"; then
+    updates[YOUTUBE_PLUGIN_VERSION]="$new"
+    updates[YOUTUBE_PLUGIN_SNAPSHOT]="false"
+    log "youtube-plugin: snapshot → релиз $new"
+  fi
+else
+  plan lavalink-devs/youtube-source YOUTUBE_PLUGIN_VERSION "dev.lavalink.youtube:youtube-plugin"
+fi
 plan topi314/LavaSrc LAVASRC_VERSION "com.github.topi314.lavasrc:lavasrc-plugin"
 plan topi314/LavaLyrics LAVALYRICS_VERSION "com.github.topi314.lavalyrics:lavalyrics-plugin"
 

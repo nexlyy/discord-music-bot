@@ -9,8 +9,10 @@ server:
 
 lavalink:
   plugins:
+    # Пока исправление TV-клиента (youtube-source#226) не вышло в релиз, можно взять snapshot:
+    # YOUTUBE_PLUGIN_VERSION=<полный хеш коммита> и YOUTUBE_PLUGIN_SNAPSHOT=true в .env
     - dependency: "dev.lavalink.youtube:youtube-plugin:${YOUTUBE_PLUGIN_VERSION:1.18.2}"
-      snapshot: false
+      snapshot: ${YOUTUBE_PLUGIN_SNAPSHOT:false}
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:${LAVASRC_VERSION:4.8.3}"
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
