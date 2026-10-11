@@ -62,7 +62,8 @@ async function fail(i: Replyable, error: unknown) {
   const text = error instanceof MusicError ? error.message : "Что-то пошло не так. Подробности в логах веб-панели.";
   if (!(error instanceof MusicError)) log.error("Ошибка обработки:", error);
   try {
-    if (i.deferred && !i.replied) await i.editReply({ content: `❌ ${text}`, allowedMentions: { parse: [] } });
+    // У кнопок deferUpdate привязан к сообщению плеера — editReply переписал бы его, поэтому только followUp.
+    if (i.isChatInputCommand() && i.deferred && !i.replied) await i.editReply({ content: `❌ ${text}`, allowedMentions: { parse: [] } });
     else await say(i, `❌ ${text}`);
   } catch (e) {
     log.warn("Не удалось ответить на взаимодействие:", e);

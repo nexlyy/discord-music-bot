@@ -98,6 +98,11 @@ $$("#tabs button").forEach((b) =>
   }),
 );
 
+window.addEventListener("hashchange", () => {
+  const btn = $(`#tabs button[data-tab="${location.hash.slice(1)}"]`);
+  if (btn && !btn.classList.contains("active")) btn.click();
+});
+
 /* ------------------------------ плеер ------------------------------ */
 
 function currentPosition() {

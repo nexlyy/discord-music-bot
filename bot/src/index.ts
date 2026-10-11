@@ -71,7 +71,10 @@ process.on("unhandledRejection", (e) => {
 });
 process.on("uncaughtException", (e) => {
   log.error("uncaughtException:", e);
-  void alerts.send("uncaught", "error", "⚠️ Необработанное исключение", e.stack ?? e.message, 15 * 60_000);
+  // После такого исключения состояние процесса не гарантировано: шлём уведомление и даём Docker перезапустить бота.
+  void alerts
+    .send("uncaught", "error", "⚠️ Бот упал и перезапускается", e.stack ?? e.message, 15 * 60_000)
+    .finally(() => process.exit(1));
 });
 
 async function shutdown(signal: string) {
@@ -87,4 +90,10 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 await startPanel({ config, client, music, settings, admin: new LavalinkAdmin(config, music), alerts, startedAt });
-await client.login(config.DISCORD_TOKEN);
+try {
+  await client.login(config.DISCORD_TOKEN);
+} catch (e) {
+  log.error("Не удалось войти в Discord. Проверь DISCORD_TOKEN в .env:", e);
+  await alerts.send("login", "error", "🔴 Бот не может войти в Discord", String(e), 60 * 60_000);
+  process.exit(1);
+}
