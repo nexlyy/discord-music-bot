@@ -225,7 +225,7 @@ function fillGuildSelects() {
   if (!g) return;
   if (g.name) $("#guild-name").textContent = g.name;
   if (g.icon) { $("#guild-icon").src = g.icon; $("#guild-icon").classList.remove("hidden"); }
-  const voiceOpts = g.voice.map((c) => `<option value="${c.id}">🔊 ${esc(c.name)}</option>`).join("");
+  const voiceOpts = g.voice.map((c) => `<option value="${c.id}">🔊 ${esc(c.name)}${c.members ? ` (${c.members})` : ""}</option>`).join("");
   $("#add-voice").innerHTML = `<option value="">Канал…</option>${voiceOpts}`;
   $('#settings-form [name="stay247ChannelId"]').innerHTML = `<option value="">— не выбран —</option>${voiceOpts}`;
   $('#settings-form [name="musicTextChannelId"]').innerHTML = `<option value="">Где вызвали команду</option>${g.text.map((c) => `<option value="${c.id}"># ${esc(c.name)}</option>`).join("")}`;

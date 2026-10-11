@@ -107,7 +107,9 @@ export async function startPanel(deps: Deps) {
     return {
       name: g.name,
       icon: g.iconURL({ size: 64 }),
-      voice: channels.filter((c) => c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice).map((c) => ({ id: c.id, name: c.name })),
+      voice: channels
+        .filter((c) => c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice)
+        .map((c) => ({ id: c.id, name: c.name, members: c.isVoiceBased() ? c.members.filter((m) => !m.user.bot).size : 0 })),
       text: channels.filter((c) => c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement).map((c) => ({ id: c.id, name: c.name })),
     };
   });

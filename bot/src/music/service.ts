@@ -565,7 +565,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     nm.on("raw", (node, payload) => {
       const p = payload as { op?: string; resumed?: boolean };
       if (p?.op !== "ready") return;
-      void this.onNodeReady(node, Boolean(p.resumed));
+      // raw приходит до того, как библиотека запишет sessionId, — откладываем на следующий тик.
+      setImmediate(() => void this.onNodeReady(node, Boolean(p.resumed)));
     });
   }
 
