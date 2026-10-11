@@ -62,7 +62,7 @@ Discord ──► bot (Node.js, discord.js)  ──► Lavalink (Java) ──►
 
 1. https://discord.com/developers/applications → **New Application**.
 2. **Bot** → **Reset Token** → скопируй токен (это `DISCORD_TOKEN`). Привилегированные интенты не нужны.
-3. **OAuth2 → URL Generator**: scopes `bot` и `applications.commands`; права `View Channels`, `Send Messages`, `Embed Links`, `Read Message History`, `Connect`, `Speak`. Открой ссылку и добавь бота на сервер.
+3. **OAuth2 → URL Generator**: scopes `bot` и `applications.commands`; права `View Channels`, `Send Messages`, `Embed Links`, `Read Message History`, `Connect`, `Speak`, `Set Voice Channel Status` (трек в статусе канала), `Pin Messages` (закрепление итогов месяца). Открой ссылку и добавь бота на сервер.
 4. ID сервера: Discord → Настройки → Расширенные → Режим разработчика; затем ПКМ по серверу → **Копировать ID** (это `DISCORD_GUILD_ID`).
 
 ### 2. Сервер

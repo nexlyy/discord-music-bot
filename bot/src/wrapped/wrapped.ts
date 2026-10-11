@@ -144,7 +144,10 @@ export class Wrapped {
       const message = await this.build("last");
       if (message) {
         const channel = await this.client.channels.fetch(channelId);
-        if (channel?.isSendable()) await channel.send({ ...message, allowedMentions: { parse: [] } });
+        if (channel?.isSendable()) {
+          const sent = await channel.send({ ...message, allowedMentions: { parse: [] } });
+          await sent.pin().catch((e) => log.warn("Итоги опубликованы, но не закреплены — нужно право «Закреплять сообщения»:", e instanceof Error ? e.message : e));
+        }
         log.info(`Итоги за ${target} опубликованы`);
       }
       this.state.write({ lastPosted: target });

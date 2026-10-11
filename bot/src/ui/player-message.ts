@@ -43,7 +43,7 @@ export class PlayerMessage {
       this.enqueue(() => this.remove());
       return;
     }
-    if (reason === "trackStart") this.resendNext = true;
+    // На смену трека сообщение только редактируется: новое сообщение помечало бы канал непрочитанным.
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = setTimeout(() => {
       this.debounce = null;
