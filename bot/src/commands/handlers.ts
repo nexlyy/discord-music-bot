@@ -175,14 +175,9 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       music.setAutoplayEnabled(enabled);
       return say(i, enabled ? "♾️ Автоплей включён: когда очередь кончится, добавлю похожие треки" : "♾️ Автоплей выключен");
     }
-    case "lyrics": {
-      if (!music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
-      if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
-      await i.deferReply({ flags: MessageFlags.Ephemeral });
-      await ctx.lyrics.open(i.channel);
-      await i.editReply("🎤 Текст песни в чате, он будет следовать за треком");
-      return;
-    }
+    case "lyrics":
+      // Текст видит только тот, кто его открыл.
+      return ctx.lyrics.open(i);
     case "247": {
       const enabled = i.options.getBoolean("включить") ?? !settings.get().stay247;
       if (enabled) {
@@ -326,17 +321,8 @@ async function runPersonalOption(i: StringSelectMenuInteraction, ctx: Ctx): Prom
   else if (value === OPTION_VALUES.addTo) await openAddTo(i, ctx);
   else if (value === OPTION_VALUES.effects) await openEffects(i, ctx);
   else if (value === OPTION_VALUES.add) await i.showModal(buildAddModal(ctx));
-  else if (value === OPTION_VALUES.lyrics) {
-    if (ctx.lyrics.active) {
-      await ctx.lyrics.close();
-      await i.deferUpdate();
-    } else {
-      if (!ctx.music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
-      if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
-      await i.deferUpdate();
-      await ctx.lyrics.open(i.channel);
-    }
-  } else return false;
+  else if (value === OPTION_VALUES.lyrics) await ctx.lyrics.open(i);
+  else return false;
   ctx.playerMessage.refresh();
   return true;
 }
@@ -398,13 +384,15 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
   }
 
   if (id === LYRICS_IDS.close) {
+    ctx.lyrics.close(i.user.id);
     await i.deferUpdate();
-    if (ctx.lyrics.isLyricsMessage(i.message.id)) await ctx.lyrics.close();
+    // Личное сообщение с текстом удаляем; старые общие сообщения (до обновления) — тоже.
+    if (i.message.flags.has(MessageFlags.Ephemeral)) await i.deleteReply().catch(() => undefined);
     else await i.message.delete().catch(() => undefined);
     return;
   }
   if (id === LYRICS_IDS.full) {
-    const lyr = ctx.lyrics.currentLyrics();
+    const lyr = ctx.lyrics.lyricsFor(i.user.id);
     const text = lyr?.text?.trim() || lyr?.lines.map((l) => l.text).join("\n") || "Текст не найден.";
     return say(i, truncate(text, 1950));
   }
@@ -424,18 +412,7 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
   // Просмотр очереди, плейлисты, обзор и настройки доступны всем, остальное — только из канала бота.
   if (id === PLAYER_IDS.playlists) return openPlaylists(i, ctx);
   if (id === PLAYER_IDS.browse) return openBrowse(i, ctx);
-  if (id === PLAYER_IDS.lyrics) {
-    if (ctx.lyrics.active) {
-      await ctx.lyrics.close();
-      await i.deferUpdate();
-      return;
-    }
-    if (!music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
-    if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
-    await i.deferUpdate();
-    await ctx.lyrics.open(i.channel);
-    return;
-  }
+  if (id === PLAYER_IDS.lyrics) return ctx.lyrics.open(i);
   if (id === PLAYER_IDS.options && i.isStringSelectMenu() && (await runPersonalOption(i, ctx))) return;
   if (id === PLAYER_IDS.queue) {
     await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), 1), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });

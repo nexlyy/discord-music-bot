@@ -638,6 +638,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   async ensureStay247() {
     const s = this.settings.get();
     if (!s.stay247 || !s.stay247ChannelId || !this.ready) return;
+    // Бота убрали с сервера — зайти некуда; вернёмся по событию GuildCreate.
+    if (!this.client.guilds.cache.has(this.guildId)) return;
     const p = this.player;
     if (p?.connected && p.voiceChannelId === s.stay247ChannelId) return;
     if (p?.queue.current) return; // не дёргаем играющий плеер

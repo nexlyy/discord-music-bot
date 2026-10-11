@@ -5,26 +5,32 @@ import {
   ContainerBuilder,
   MessageFlags,
   TextDisplayBuilder,
-  type Message,
-  type SendableChannels,
+  type ButtonInteraction,
+  type ChatInputCommandInteraction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
 import type { Track } from "lavalink-client";
 import { escapeMd, truncate } from "../format.js";
 import { createLogger } from "../logger.js";
 import { currentLineIndex, getLyrics, type Lyrics } from "../music/lyrics.js";
 import type { MusicService } from "../music/service.js";
+import { MusicError } from "../music/types.js";
 import type { SettingsStore } from "../settings.js";
 import { hexToInt } from "./player-view.js";
 
 const log = createLogger("lyrics-view");
 export const LYRICS_IDS = { close: "ly:close", full: "ly:full" } as const;
 
+type LyricsInteraction = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction;
+
 const BEFORE = 2;
 const AFTER = 5;
+/** Токен ответа на взаимодействие живёт 15 минут — обновляем чуть меньше. */
+const SESSION_MS = 14 * 60_000;
 
 function header(track: Track, lyrics: Lyrics | null) {
   const src = lyrics ? ` · ${lyrics.source}${lyrics.synced ? " · синхронно" : ""}` : "";
-  return `-# 🎤 Текст песни${src}\n### ${escapeMd(truncate(`${track.info.author} — ${track.info.title}`, 100))}`;
+  return `-# Текст песни${src}\n### ${escapeMd(truncate(`${track.info.author} — ${track.info.title}`, 100))}`;
 }
 
 function body(lyrics: Lyrics | null, position: number): string {
@@ -44,10 +50,11 @@ function body(lyrics: Lyrics | null, position: number): string {
   return out.join("\n");
 }
 
-function view(track: Track, lyrics: Lyrics | null, position: number, accent: string) {
+function view(track: Track, lyrics: Lyrics | null, position: number, accent: string, note?: string) {
+  const content = `${header(track, lyrics)}\n${body(lyrics, position)}${note ? `\n-# ${note}` : ""}`;
   const container = new ContainerBuilder()
     .setAccentColor(hexToInt(accent))
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${header(track, lyrics)}\n${body(lyrics, position)}`))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(content))
     .addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(LYRICS_IDS.full).setLabel("Весь текст").setEmoji("📄").setStyle(ButtonStyle.Secondary).setDisabled(!lyrics),
@@ -57,14 +64,22 @@ function view(track: Track, lyrics: Lyrics | null, position: number, accent: str
   return { components: [container], flags: MessageFlags.IsComponentsV2 as const };
 }
 
-/** Живой текст: сообщение подсвечивает текущую строку и само переключается на следующий трек. */
+interface Session {
+  interaction: LyricsInteraction;
+  startedAt: number;
+  trackId: string;
+  lyrics: Lyrics | null;
+  lastIdx: number;
+  busy: boolean;
+}
+
+/**
+ * Живой текст песни, который видит только тот, кто его открыл (эфемерное сообщение).
+ * Строка подсвечивается по ходу трека, на следующем треке текст переключается сам.
+ */
 export class LiveLyrics {
-  private message: Message | null = null;
-  private trackId: string | null = null;
-  private lyrics: Lyrics | null = null;
-  private lastIdx = -2;
+  private sessions = new Map<string, Session>();
   private timer: NodeJS.Timeout | null = null;
-  private loading = false;
 
   constructor(
     private readonly music: MusicService,
@@ -72,80 +87,98 @@ export class LiveLyrics {
   ) {
     music.on("update", (reason) => {
       if (reason === "trackStart") void this.switchTrack();
-      if (reason === "destroy") void this.close();
+      if (reason === "destroy") void this.closeAll("Воспроизведение остановлено");
     });
   }
 
-  get active() {
-    return this.message !== null;
-  }
-
-  currentLyrics(): Lyrics | null {
-    return this.lyrics;
-  }
-
-  async open(channel: SendableChannels) {
-    await this.close();
+  /** Открыть текст для нажавшего. Повторное открытие заменяет его прошлую сессию. */
+  async open(i: LyricsInteraction) {
     const player = this.music.player;
     const track = player?.queue.current;
-    if (!player || !track) throw new Error("Сейчас ничего не играет.");
-    this.trackId = track.info.identifier;
-    this.lyrics = await getLyrics(player, track);
-    this.lastIdx = -2;
-    this.message = await channel.send(view(track, this.lyrics, player.position, this.settings.get().accentColor));
-    this.startTimer();
+    if (!player || !track) throw new MusicError("Сейчас ничего не играет.");
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const lyrics = await getLyrics(player, track);
+    await i.editReply(view(track, lyrics, player.position, this.settings.get().accentColor));
+    this.sessions.set(i.user.id, { interaction: i, startedAt: Date.now(), trackId: track.info.identifier, lyrics, lastIdx: -2, busy: false });
+    this.ensureTimer();
   }
 
-  async close() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-    const msg = this.message;
-    this.message = null;
-    this.trackId = null;
-    if (msg) await msg.delete().catch(() => undefined);
+  close(userId: string) {
+    this.sessions.delete(userId);
+    this.stopTimerIfIdle();
   }
 
-  isLyricsMessage(id: string) {
-    return this.message?.id === id;
+  lyricsFor(userId: string): Lyrics | null {
+    return this.sessions.get(userId)?.lyrics ?? null;
   }
 
-  private startTimer() {
-    if (this.timer) clearInterval(this.timer);
-    if (!this.lyrics?.synced) return;
-    this.timer = setInterval(() => void this.tick(), 1500);
+  private ensureTimer() {
+    if (!this.timer) this.timer = setInterval(() => void this.tick(), 1500);
+  }
+
+  private stopTimerIfIdle() {
+    if (this.sessions.size === 0 && this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  private async edit(userId: string, s: Session, note?: string) {
+    const player = this.music.player;
+    const track = player?.queue.current;
+    if (!player || !track) return;
+    try {
+      await s.interaction.editReply(view(track, s.lyrics, player.position, this.settings.get().accentColor, note));
+    } catch (e) {
+      log.debug("Сессия текста закрыта:", e instanceof Error ? e.message : e);
+      this.sessions.delete(userId);
+    }
   }
 
   private async tick() {
     const player = this.music.player;
-    const track = player?.queue.current;
-    if (!this.message || !player || !track || !this.lyrics?.synced || this.loading) return;
-    const idx = currentLineIndex(this.lyrics, player.position);
-    if (idx === this.lastIdx) return;
-    this.lastIdx = idx;
-    await this.message
-      .edit(view(track, this.lyrics, player.position, this.settings.get().accentColor))
-      .catch((e) => {
-        log.debug("edit:", e);
-        this.message = null;
-      });
+    if (!player?.queue.current) return;
+    for (const [userId, s] of this.sessions) {
+      if (s.busy) continue;
+      if (Date.now() - s.startedAt > SESSION_MS) {
+        this.sessions.delete(userId);
+        await this.edit(userId, s, "Живое обновление остановлено — нажми «Текст» ещё раз.");
+        continue;
+      }
+      if (!s.lyrics?.synced) continue;
+      const idx = currentLineIndex(s.lyrics, player.position);
+      if (idx === s.lastIdx) continue;
+      s.lastIdx = idx;
+      s.busy = true;
+      await this.edit(userId, s);
+      s.busy = false;
+    }
+    this.stopTimerIfIdle();
   }
 
   private async switchTrack() {
-    if (!this.message) return;
     const player = this.music.player;
     const track = player?.queue.current;
-    if (!player || !track || track.info.identifier === this.trackId) return;
-    this.loading = true;
-    try {
-      this.trackId = track.info.identifier;
-      this.lyrics = await getLyrics(player, track);
-      this.lastIdx = -2;
-      await this.message.edit(view(track, this.lyrics, player.position, this.settings.get().accentColor));
-      this.startTimer();
-    } catch (e) {
-      log.debug("switchTrack:", e);
-    } finally {
-      this.loading = false;
+    if (!player || !track || this.sessions.size === 0) return;
+    const lyrics = await getLyrics(player, track).catch(() => null);
+    for (const [userId, s] of this.sessions) {
+      if (s.trackId === track.info.identifier) continue;
+      s.trackId = track.info.identifier;
+      s.lyrics = lyrics;
+      s.lastIdx = -2;
+      await this.edit(userId, s);
     }
+  }
+
+  async closeAll(note: string) {
+    const player = this.music.player;
+    for (const [userId, s] of this.sessions) {
+      this.sessions.delete(userId);
+      // Плеер уже уничтожен — показываем короткую заметку вместо текста.
+      if (!player?.queue.current) {
+        await s.interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${note}`))], flags: MessageFlags.IsComponentsV2 }).catch(() => undefined);
+      }
+    }
+    this.stopTimerIfIdle();
   }
 }

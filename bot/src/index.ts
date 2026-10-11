@@ -1,4 +1,4 @@
-import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits, type Guild } from "discord.js";
 import { commandsJson } from "./commands/definitions.js";
 import type { Ctx } from "./commands/common.js";
 import { handleInteraction } from "./commands/handlers.js";
@@ -88,16 +88,34 @@ music.on("update", (reason) => {
   client.user?.setActivity(cur ? `${cur.info.author} — ${cur.info.title}`.slice(0, 120) : "/play", { type: cur ? ActivityType.Listening : ActivityType.Custom });
 });
 
+async function registerCommands(guild: Guild) {
+  await guild.commands.set(commandsJson).then(
+    (cmds) => log.info(`Зарегистрировано команд: ${cmds.size}`),
+    (e) => log.error("Не удалось зарегистрировать команды:", e),
+  );
+}
+
+// Если бота убрали с сервера и добавили снова (например, ради новых прав), Discord удаляет его команды —
+// регистрируем их заново сразу при возвращении.
+client.on(Events.GuildCreate, async (guild) => {
+  if (guild.id !== config.DISCORD_GUILD_ID) return;
+  log.info("Бот снова добавлен на сервер — регистрирую команды");
+  await registerCommands(guild);
+  await music.ensureStay247();
+});
+client.on(Events.GuildDelete, (guild) => {
+  if (guild.id !== config.DISCORD_GUILD_ID) return;
+  log.warn("Бота убрали с сервера");
+  void alerts.send("guild-removed", "warn", "🟠 Бота убрали с сервера", "Когда его добавят снова, команды зарегистрируются автоматически.", 0);
+});
+
 client.once(Events.ClientReady, async (c) => {
   log.info(`Вошёл как ${c.user.tag}`);
   const guild = c.guilds.cache.get(config.DISCORD_GUILD_ID);
   if (!guild) {
     log.error(`Бот не состоит на сервере ${config.DISCORD_GUILD_ID}. Пригласи его по ссылке из README.`);
   } else {
-    await guild.commands.set(commandsJson).then(
-      (cmds) => log.info(`Зарегистрировано команд: ${cmds.size}`),
-      (e) => log.error("Не удалось зарегистрировать команды:", e),
-    );
+    await registerCommands(guild);
     // Глобальные команды не используем — чистим, чтобы не было дублей.
     await c.application.commands.set([]).catch(() => undefined);
   }
@@ -124,7 +142,7 @@ process.on("uncaughtException", (e) => {
 async function shutdown(signal: string) {
   log.info(`Получен ${signal}, выключаюсь`);
   try {
-    await ctx.lyrics.close();
+    await ctx.lyrics.closeAll("Бот перезапускается — открой текст заново через минуту");
     playlists.flush();
     history.flush();
     await client.destroy();
