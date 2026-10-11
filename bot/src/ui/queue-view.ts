@@ -23,7 +23,7 @@ export function buildQueueMessage(snap: PlayerSnapshot, settings: Settings, page
   const lines: string[] = ["### 📜 Очередь"];
   if (snap.current) lines.push(`**Сейчас:** ${trackLine(snap.current, 80)}`, "");
   if (items.length === 0) lines.push("Очередь пуста. Добавь треки командой `/play`.");
-  else lines.push(...items.map((t, i) => `\`${start + i + 1}.\` ${trackLine(t, 70)}${t.requester && t.requester.id !== "autoplay" ? ` · <@${t.requester.id}>` : ""}`));
+  else lines.push(...items.map((t, i) => `\`${start + i + 1}.\` ${trackLine(t, 70)}${t.requester && /^\d+$/.test(t.requester.id) ? ` · <@${t.requester.id}>` : ""}`));
   lines.push("", `-# ${tracksWord(snap.queue.length)} · ${formatDuration(snap.queueDuration)} · страница ${p}/${pages}`);
 
   const container = new ContainerBuilder()

@@ -42,6 +42,14 @@ export function trackLine(t: TrackView, maxLen = 70): string {
   return t.uri ? `[${escapeMd(name)}](${t.uri}) \`${dur}\`` : `${escapeMd(name)} \`${dur}\``;
 }
 
+/** Подпись «кто заказал»: служебные заказчики (автоплей, панель) не являются пользователями Discord. */
+export function requesterLabel(r: TrackView["requester"]): string | null {
+  if (!r) return null;
+  if (r.id === "autoplay") return "из автоплея";
+  if (r.id === "panel") return "из веб-панели";
+  return `заказал <@${r.id}>`;
+}
+
 function repeatLabel(mode: string): string | null {
   if (mode === "queue") return "🔁 Повтор очереди";
   if (mode === "track") return "🔂 Повтор трека";
@@ -105,7 +113,7 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     repeatLabel(snap.repeatMode),
     snap.autoplay ? "♾️ Автоплей" : null,
     snap.stay247 ? "🌙 24/7" : null,
-    cur.requester && cur.requester.id !== "autoplay" ? `заказал <@${cur.requester.id}>` : cur.requester ? "из автоплея" : null,
+    requesterLabel(cur.requester),
   ]
     .filter(Boolean)
     .join(" · ");
