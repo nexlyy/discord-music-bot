@@ -30,11 +30,35 @@ import {
 
 const log = createLogger("music");
 
+export const EFFECTS = {
+  bass: "Усиление басов",
+  nightcore: "Nightcore",
+  vaporwave: "Vaporwave",
+  rotation: "8D-звук",
+  karaoke: "Караоке (без вокала)",
+  tremolo: "Тремоло",
+  lowPass: "Приглушённый звук",
+} as const;
+export type EffectKey = keyof typeof EFFECTS;
+
+function shuffleInPlace<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+}
+
 export interface PlayRequest {
   query: string;
   source?: SearchSourceKey;
   /** Готовый трек из кэша автодополнения — без повторного поиска */
   track?: Track;
+  /** Готовый список (плейлист, чарт, радио) — без поиска */
+  tracks?: Track[];
+  playlistName?: string | null;
+  playlistUrl?: string | null;
+  /** Перемешать добавляемые треки */
+  shuffle?: boolean;
   voiceChannelId: string;
   textChannelId: string | null;
   requester: Requester;
@@ -67,6 +91,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
   private trackNumber = 0;
+  private shuffleOn = false;
+  private originalOrder: (Track | UnresolvedTrack)[] = [];
 
   constructor(
     private readonly client: Client,
@@ -173,6 +199,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       queueDuration: queue.reduce((sum, t) => sum + (t.info.duration ?? 0), 0),
       previousCount: p?.queue.previous.length ?? 0,
       trackNumber: p?.queue.current ? this.trackNumber : 0,
+      shuffle: this.shuffleOn,
+      effects: Object.entries(this.effectsState()).filter(([, on]) => on).map(([k]) => k as EffectKey),
       updatedAt: Date.now(),
     };
   }
@@ -214,7 +242,14 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     let tracks: Track[];
     let playlistName: string | null = null;
 
-    if (req.track) {
+    if (req.tracks) {
+      if (req.tracks.length === 0) throw new MusicError("Список треков пуст.");
+      tracks = req.tracks.slice(0, s.maxPlaylistTracks);
+      playlistName = req.playlistName ?? null;
+      if (playlistName) {
+        for (const t of tracks) t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl: req.playlistUrl ?? null };
+      }
+    } else if (req.track) {
       tracks = [req.track];
     } else {
       const result = await this.search(req.query, req.source, req.requester);
@@ -241,10 +276,18 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const toAdd = allowed.slice(0, room);
     skipped += allowed.length - toAdd.length;
 
+    if (req.shuffle) shuffleInPlace(toAdd);
     const idle = !player.queue.current && !player.playing;
     const position = idle ? 0 : req.next ? 1 : player.queue.tracks.length + 1;
-    if (req.next) await player.queue.add(toAdd, 0);
-    else await player.queue.add(toAdd);
+    if (req.next) {
+      await player.queue.add(toAdd, 0);
+    } else if (this.shuffleOn) {
+      // Режим перемешивания: новые треки встают в случайные места очереди.
+      for (const t of toAdd) await player.queue.add(t, Math.floor(Math.random() * (player.queue.tracks.length + 1)));
+    } else {
+      await player.queue.add(toAdd);
+    }
+    if (this.shuffleOn) this.originalOrder.push(...toAdd);
 
     if (idle) await player.play({ paused: false });
     else this.emit("update", "queue");
@@ -353,12 +396,82 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     await p.destroy("Выход по команде");
   }
 
-  async shuffle(): Promise<number> {
+  get shuffleEnabled(): boolean {
+    return this.shuffleOn;
+  }
+
+  /**
+   * Режим перемешивания, как в Spotify: при включении очередь перемешивается, новые треки встают
+   * в случайные места; при выключении возвращается исходный порядок.
+   */
+  async toggleShuffle(): Promise<boolean> {
     const p = this.requirePlayer();
-    if (p.queue.tracks.length < 2) throw new MusicError("Для перемешивания нужно хотя бы 2 трека в очереди.");
-    await p.queue.shuffle();
+    if (!this.shuffleOn) {
+      this.originalOrder = [...p.queue.tracks];
+      if (p.queue.tracks.length > 1) await p.queue.shuffle();
+      this.shuffleOn = true;
+    } else {
+      const order = new Map(this.originalOrder.map((t, i) => [t, i]));
+      const restored = [...p.queue.tracks].sort((a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity));
+      await p.queue.splice(0, p.queue.tracks.length, restored);
+      this.shuffleOn = false;
+      this.originalOrder = [];
+    }
     this.emit("update", "queue");
-    return p.queue.tracks.length;
+    return this.shuffleOn;
+  }
+
+  /* ------------------------------- эффекты ------------------------------- */
+
+  effectsState(): Record<EffectKey, boolean> {
+    const f = this.player?.filterManager;
+    return {
+      bass: Boolean(f && f.equalizerBands.length > 0),
+      nightcore: Boolean(f?.filters.nightcore),
+      vaporwave: Boolean(f?.filters.vaporwave),
+      rotation: Boolean(f?.filters.rotation),
+      karaoke: Boolean(f?.filters.karaoke),
+      tremolo: Boolean(f?.filters.tremolo),
+      lowPass: Boolean(f?.filters.lowPass),
+    };
+  }
+
+  /** Переключить эффект. "off" — снять все. Возвращает новое состояние эффекта. */
+  async toggleEffect(key: EffectKey | "off"): Promise<boolean> {
+    const f = this.requireCurrent().filterManager;
+    if (key === "off") {
+      await f.resetFilters();
+      if (f.equalizerBands.length) await f.clearEQ();
+      this.emit("update", "settings");
+      return false;
+    }
+    const before = this.effectsState()[key];
+    switch (key) {
+      case "bass":
+        if (before) await f.clearEQ();
+        else await f.setEQPreset("BassboostMedium");
+        break;
+      case "nightcore":
+        await f.toggleNightcore();
+        break;
+      case "vaporwave":
+        await f.toggleVaporwave();
+        break;
+      case "rotation":
+        await f.toggleRotation(0.2);
+        break;
+      case "karaoke":
+        await f.toggleKaraoke();
+        break;
+      case "tremolo":
+        await f.toggleTremolo(4, 0.6);
+        break;
+      case "lowPass":
+        await f.toggleLowPass(20);
+        break;
+    }
+    this.emit("update", "settings");
+    return !before;
   }
 
   async setRepeat(mode: RepeatMode): Promise<RepeatMode> {
@@ -552,6 +665,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       this.cancelLeave();
       this.autoPausedForEmpty = false;
       this.trackNumber = 0;
+      this.shuffleOn = false;
+      this.originalOrder = [];
       this.emit("update", "destroy");
       // В режиме 24/7 возвращаемся в канал (если нас не выгнали вручную — тогда канал сменится через настройки).
       if (this.settings.get().stay247) setTimeout(() => void this.ensureStay247(), 3_000);

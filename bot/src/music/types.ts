@@ -50,6 +50,10 @@ export interface PlayerSnapshot {
   previousCount: number;
   /** Порядковый номер текущего трека в сессии (1, 2, …) */
   trackNumber: number;
+  /** Режим перемешивания */
+  shuffle: boolean;
+  /** Включённые эффекты */
+  effects: string[];
   updatedAt: number;
 }
 

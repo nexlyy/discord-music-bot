@@ -24,14 +24,20 @@ export const PLAYER_IDS = {
   skip: "mp:skip",
   queue: "mp:queue",
   options: "mp:opts",
-  lyrics: "mp:lyrics",
   add: "mp:add",
+  playlists: "mp:playlists",
+  browse: "mp:browse",
   settings: "mp:settings",
   leave: "mp:leave",
 } as const;
 
 /** Значения пунктов меню «Параметры плеера». */
 export const OPTION_VALUES = {
+  like: "like",
+  addTo: "addto",
+  add: "add",
+  lyrics: "lyrics",
+  effects: "effects",
   loopQueue: "loopq",
   loopTrack: "loopt",
   autoplay: "autoplay",
@@ -77,21 +83,31 @@ function optionsMenu(snap: PlayerSnapshot, settings: Settings) {
     .setCustomId(PLAYER_IDS.options)
     .setPlaceholder("Параметры плеера")
     .addOptions(
+      { label: "Нравится", value: OPTION_VALUES.like, description: "Добавить в «Любимые» или убрать оттуда", emoji: icon("heart") },
+      { label: "Добавить в плейлист", value: OPTION_VALUES.addTo, description: "Сохранить текущий трек в свой плейлист", emoji: icon("playlist") },
+      { label: "Добавить трек", value: OPTION_VALUES.add, description: "Найти и поставить в очередь", emoji: icon("search") },
+      { label: "Текст песни", value: OPTION_VALUES.lyrics, description: "Синхронно с треком", emoji: icon("lyrics") },
+      {
+        label: "Эффекты",
+        value: OPTION_VALUES.effects,
+        description: snap.effects.length ? `Включено: ${snap.effects.length}` : "Басы, nightcore, 8D и другие",
+        emoji: icon("effects"),
+      },
       { label: "Повтор очереди", value: OPTION_VALUES.loopQueue, description: onOff(snap.repeatMode === "queue"), emoji: icon("repeat") },
       { label: "Повтор трека", value: OPTION_VALUES.loopTrack, description: onOff(snap.repeatMode === "track"), emoji: icon("repeat1") },
       { label: "Автоплей", value: OPTION_VALUES.autoplay, description: `Похожие треки после очереди. ${onOff(snap.autoplay)}`, emoji: icon("autoplay") },
       { label: `Тише (−${settings.volumeStep}%)`, value: OPTION_VALUES.volDown, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("voldown") },
       { label: `Громче (+${settings.volumeStep}%)`, value: OPTION_VALUES.volUp, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("volup") },
       { label: "Режим 24/7", value: OPTION_VALUES.stay247, description: `Не выходить из канала. ${onOff(snap.stay247)}`, emoji: icon("moon") },
-      { label: "Очистить очередь", value: OPTION_VALUES.clear, description: `В очереди: ${snap.queue.length}`, emoji: icon("queue") },
+      { label: "Очистить очередь", value: OPTION_VALUES.clear, description: `В очереди: ${snap.queue.length}`, emoji: icon("clear") },
       { label: "Остановить", value: OPTION_VALUES.stop, description: snap.stay247 ? "Очистить очередь, остаться в канале" : "Очистить очередь и выйти", emoji: icon("stop") },
     );
 }
 
 function bottomRow() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    iconButton(PLAYER_IDS.lyrics, "lyrics", { label: "Текст песни" }),
-    iconButton(PLAYER_IDS.add, "search", { label: "Добавить трек" }),
+    iconButton(PLAYER_IDS.playlists, "playlist", { label: "Плейлисты" }),
+    iconButton(PLAYER_IDS.browse, "browse", { label: "Обзор" }),
     iconButton(PLAYER_IDS.settings, "settings"),
   );
 }
@@ -114,10 +130,10 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        iconButton(PLAYER_IDS.prev, "prev", { disabled: snap.previousCount === 0 }),
         iconButton(PLAYER_IDS.add, "search", { label: "Добавить трек" }),
-        iconButton(PLAYER_IDS.settings, "settings"),
-        iconButton(PLAYER_IDS.leave, "stop", { label: snap.stay247 ? "Выключить 24/7 и выйти" : "Выйти" }),
+        iconButton(PLAYER_IDS.playlists, "playlist", { label: "Плейлисты" }),
+        iconButton(PLAYER_IDS.browse, "browse", { label: "Обзор" }),
+        iconButton(PLAYER_IDS.leave, "stop", { label: snap.stay247 ? "Выйти (выключит 24/7)" : "Выйти" }),
       ),
     );
     return { components: [container], flags: MessageFlags.IsComponentsV2 as const };
@@ -143,6 +159,8 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     cur.isStream ? "🔴 LIVE" : formatDuration(cur.duration),
     snap.paused ? "на паузе" : null,
     snap.repeatMode === "track" ? "повтор трека" : snap.repeatMode === "queue" ? "повтор очереди" : null,
+    snap.shuffle ? "перемешивание" : null,
+    snap.effects.length ? `эффекты: ${snap.effects.length}` : null,
     snap.stay247 ? "24/7" : null,
   ]
     .filter(Boolean)
@@ -159,7 +177,7 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
   container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
   container.addActionRowComponents(
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      iconButton(PLAYER_IDS.shuffle, "shuffle", { disabled: snap.queue.length < 2 }),
+      iconButton(PLAYER_IDS.shuffle, "shuffle", { active: snap.shuffle }),
       iconButton(PLAYER_IDS.prev, "prev", { disabled: snap.previousCount === 0 }),
       iconButton(PLAYER_IDS.toggle, snap.paused ? "play" : "pause"),
       iconButton(PLAYER_IDS.skip, "next"),

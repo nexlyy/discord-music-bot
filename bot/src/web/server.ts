@@ -193,7 +193,7 @@ export async function startPanel(deps: Deps) {
     previous: () => music.previous(),
     stop: () => music.stop(),
     leave: () => music.leave(),
-    shuffle: () => music.shuffle(),
+    shuffle: () => music.toggleShuffle(),
     clear: () => music.clear(),
     repeat: (b) => music.setRepeat(z.enum(["off", "queue", "track"]).parse(b.mode)),
     volume: (b) => music.setVolume(z.number().parse(b.value)),

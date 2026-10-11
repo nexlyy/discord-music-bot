@@ -100,6 +100,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; }
 .ctl:active { transform: scale(.94); }
 .ctl.big { width: 58px; height: 58px; font-size: 22px; background: var(--accent); border-color: transparent; color: #fff; }
 .ctl.danger:hover { background: var(--danger); color: #fff; }
+.ctl.on { background: var(--accent-soft); border-color: var(--accent); }
 .ctl:disabled { opacity: .4; cursor: default; }
 .toggles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }

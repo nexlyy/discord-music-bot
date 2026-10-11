@@ -8,90 +8,23 @@ import {
   type AutocompleteInteraction,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
-  type GuildMember,
   type Interaction,
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
-  type User,
 } from "discord.js";
 import type { RepeatMode, Track } from "lavalink-client";
-import type { Config } from "../config.js";
 import { escapeMd, formatDuration, parseTime, tracksWord, truncate } from "../format.js";
 import { createLogger } from "../logger.js";
-import type { MusicService, PlayResult } from "../music/service.js";
-import { MusicError, type Requester } from "../music/types.js";
-import type { SettingsStore } from "../settings.js";
+import { MusicError } from "../music/types.js";
 import { SEARCH_SOURCES, SEARCH_SOURCE_KEYS, isSearchSourceKey, isUrl, sourceInfo, type SearchSourceKey } from "../sources.js";
-import type { LiveLyrics } from "../ui/lyrics-view.js";
 import { LYRICS_IDS } from "../ui/lyrics-view.js";
-import type { PlayerMessage } from "../ui/player-message.js";
 import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
 import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
-import type { TrackCache } from "./track-cache.js";
+import { fromStored } from "../library/stored-track.js";
+import { assertSameChannel, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
+import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
 
 const log = createLogger("commands");
-
-export interface Ctx {
-  config: Config;
-  music: MusicService;
-  settings: SettingsStore;
-  playerMessage: PlayerMessage;
-  lyrics: LiveLyrics;
-  cache: TrackCache;
-}
-
-type Replyable = ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
-
-function toRequester(user: User): Requester {
-  return { id: user.id, username: user.globalName ?? user.username, avatar: user.displayAvatarURL() };
-}
-
-function userVoiceChannel(i: Interaction): string | null {
-  const member = i.member as GuildMember | null;
-  return member?.voice?.channelId ?? null;
-}
-
-/** Управлять плеером можно только из того же голосового канала. */
-function assertSameChannel(i: Interaction, music: MusicService) {
-  const botChannel = music.player?.voiceChannelId;
-  if (!botChannel) return;
-  if (userVoiceChannel(i) !== botChannel) throw new MusicError(`Зайди в <#${botChannel}>, чтобы управлять музыкой.`);
-}
-
-async function say(i: Replyable, content: string, ephemeral = true) {
-  const payload = { content, allowedMentions: { parse: [] as never[] }, flags: (ephemeral ? MessageFlags.Ephemeral : 0) | MessageFlags.SuppressEmbeds };
-  if (i.deferred || i.replied) await i.followUp(payload);
-  else await i.reply(payload);
-}
-
-async function fail(i: Replyable, error: unknown) {
-  const text = error instanceof MusicError ? error.message : "Что-то пошло не так. Подробности в логах веб-панели.";
-  if (!(error instanceof MusicError)) log.error("Ошибка обработки:", error);
-  try {
-    // У кнопок deferUpdate привязан к сообщению плеера — editReply переписал бы его, поэтому только followUp.
-    if (i.isChatInputCommand() && i.deferred && !i.replied) await i.editReply({ content: `❌ ${text}`, allowedMentions: { parse: [] } });
-    else await say(i, `❌ ${text}`);
-  } catch (e) {
-    log.warn("Не удалось ответить на взаимодействие:", e);
-  }
-}
-
-function trackLink(t: Track): string {
-  const name = escapeMd(truncate(`${t.info.author} — ${t.info.title}`, 90));
-  return t.info.uri ? `[${name}](<${t.info.uri}>)` : name;
-}
-
-function describePlay(r: PlayResult): string {
-  const first = r.added[0]!;
-  const skipped = r.skipped > 0 ? `\n-# Пропущено: ${tracksWord(r.skipped)} (лимиты очереди/длительности)` : "";
-  if (r.playlistName) {
-    const total = r.added.reduce((s, t) => s + (t.info.duration ?? 0), 0);
-    return `📃 Добавлен плейлист **${escapeMd(truncate(r.playlistName, 80))}** — ${tracksWord(r.added.length)}, ${formatDuration(total)}${r.startedNow ? "\n▶️ Начинаю воспроизведение" : ""}${skipped}`;
-  }
-  const src = sourceInfo(first.info.sourceName);
-  if (r.startedNow) return `▶️ Включаю ${src.emoji} ${trackLink(first)} \`${formatDuration(first.info.duration)}\`${skipped}`;
-  return `➕ В очереди под номером **${r.position}**: ${src.emoji} ${trackLink(first)} \`${formatDuration(first.info.duration)}\`${skipped}`;
-}
 
 /* ------------------------------- команды ------------------------------- */
 
@@ -106,6 +39,22 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       const raw = i.options.getString("запрос", true);
       const sourceOpt = i.options.getString("площадка");
       const source = isSearchSourceKey(sourceOpt) ? sourceOpt : undefined;
+      if (raw.startsWith("pl:")) {
+        const pl = ctx.playlists.own(raw.slice(3), i.user.id);
+        const requester = toRequester(i.user);
+        const result = await music.play({
+          query: "",
+          tracks: pl.tracks.map((t) => fromStored(t, music.lavalink, requester)),
+          playlistName: pl.name,
+          playlistUrl: pl.sourceUrl,
+          voiceChannelId: voice,
+          textChannelId: i.channelId,
+          requester,
+          next: i.options.getBoolean("следующим") ?? false,
+        });
+        await i.editReply({ content: describePlay(result), allowedMentions: { parse: [] } });
+        return;
+      }
       const cached = ctx.cache.getTrack(raw);
       const track = cached ? ({ ...cached, requester: toRequester(i.user) } as Track) : undefined;
       const query = ctx.cache.getText(raw) ?? raw;
@@ -161,9 +110,15 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     }
     case "shuffle": {
       assertSameChannel(i, music);
-      const n = await music.shuffle();
-      return say(i, `🔀 Перемешал ${tracksWord(n)}`);
+      const on = await music.toggleShuffle();
+      return say(i, on ? "🔀 Перемешивание включено: очередь перемешана, новые треки встанут в случайные места" : "➡️ Перемешивание выключено, порядок очереди восстановлен");
     }
+    case "playlists":
+      return openPlaylists(i, ctx);
+    case "browse":
+      return openBrowse(i, ctx);
+    case "like":
+      return toggleLike(i, ctx);
     case "loop": {
       assertSameChannel(i, music);
       const mode = i.options.getString("режим", true) as RepeatMode;
@@ -257,15 +212,22 @@ async function runAutocomplete(i: AutocompleteInteraction, ctx: Ctx) {
   if (i.commandName !== "play" || focused.name !== "запрос") return i.respond([]);
   const q = String(focused.value).trim();
 
+  // Свои плейлисты по названию — как у Euphony: «/play название-плейлиста».
+  const playlistChoices = isUrl(q)
+    ? []
+    : ctx.playlists
+        .search(i.user.id, q)
+        .slice(0, q.length < 2 ? 5 : 3)
+        .map((p) => ({ name: truncate(`${p.liked ? "❤️" : "📁"} ${p.name} — ${tracksWord(p.tracks.length)}`, 100), value: `pl:${p.id}` }));
+
   if (q.length < 2) {
-    // Пустое поле: предлагаем недавние треки.
-    const recent = ctx.music.player?.queue.previous ?? [];
-    const seen = new Set<string>();
-    const choices = recent
-      .filter((t) => (seen.has(t.info.identifier) ? false : (seen.add(t.info.identifier), true)))
-      .slice(0, 10)
-      .map((t) => ({ name: truncate(`🕘 ${t.info.author} — ${t.info.title}`, 100), value: ctx.cache.putTrack(t) }));
-    return i.respond(choices);
+    // Пустое поле: свои плейлисты и недавние треки.
+    const recent = ctx.history.recent(i.user.id, 10);
+    const choices = recent.map((t) => ({
+      name: truncate(`🕘 ${t.info.author} — ${t.info.title}`, 100),
+      value: ctx.cache.putTrack(fromStored(t, ctx.music.lavalink, toRequester(i.user))),
+    }));
+    return i.respond([...playlistChoices, ...choices].slice(0, 25));
   }
 
   if (isUrl(q)) {
@@ -306,7 +268,7 @@ async function runAutocomplete(i: AutocompleteInteraction, ctx: Ctx) {
       const dur = t.info.isStream ? "LIVE" : formatDuration(t.info.duration);
       return { name: truncate(`${sourceInfo(t.info.sourceName).emoji} ${t.info.author} — ${t.info.title} · ${dur}`, 100), value: ctx.cache.putTrack(t) };
     });
-    await i.respond(choices.length ? choices : fallback);
+    await i.respond([...playlistChoices, ...(choices.length ? choices : fallback)].slice(0, 25));
   } catch {
     await i.respond(fallback).catch(() => undefined);
   }
@@ -343,6 +305,28 @@ function buildAddModal(ctx: Ctx) {
             .addOptions({ label: "В конец очереди", value: "end", default: true }, { label: "Следующим", value: "next" }),
         ),
     );
+}
+
+/** Пункты меню, которые не меняют воспроизведение: доступны всем, ответ — отдельным сообщением. */
+async function runPersonalOption(i: StringSelectMenuInteraction, ctx: Ctx): Promise<boolean> {
+  const value = i.values[0];
+  if (value === OPTION_VALUES.like) await toggleLike(i, ctx);
+  else if (value === OPTION_VALUES.addTo) await openAddTo(i, ctx);
+  else if (value === OPTION_VALUES.effects) await openEffects(i, ctx);
+  else if (value === OPTION_VALUES.add) await i.showModal(buildAddModal(ctx));
+  else if (value === OPTION_VALUES.lyrics) {
+    if (ctx.lyrics.active) {
+      await ctx.lyrics.close();
+      await i.deferUpdate();
+    } else {
+      if (!ctx.music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
+      if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
+      await i.deferUpdate();
+      await ctx.lyrics.open(i.channel);
+    }
+  } else return false;
+  ctx.playerMessage.refresh();
+  return true;
 }
 
 async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
@@ -422,9 +406,13 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
     return;
   }
 
+  if (await runLibraryComponent(i, ctx)) return;
   if (!id.startsWith("mp:")) return;
 
-  // Просмотр очереди, настройки и добавление доступны всем, остальное — только из канала бота.
+  // Просмотр очереди, плейлисты, обзор и настройки доступны всем, остальное — только из канала бота.
+  if (id === PLAYER_IDS.playlists) return openPlaylists(i, ctx);
+  if (id === PLAYER_IDS.browse) return openBrowse(i, ctx);
+  if (id === PLAYER_IDS.options && i.isStringSelectMenu() && (await runPersonalOption(i, ctx))) return;
   if (id === PLAYER_IDS.queue) {
     await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), 1), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     return;
@@ -450,7 +438,7 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
       await music.previous();
       break;
     case PLAYER_IDS.shuffle:
-      await music.shuffle();
+      await music.toggleShuffle();
       break;
     case PLAYER_IDS.leave:
       if (settings.get().stay247) settings.update({ stay247: false });
@@ -459,18 +447,6 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
     case PLAYER_IDS.options:
       if (i.isStringSelectMenu()) await runOption(i, ctx);
       break;
-    case PLAYER_IDS.lyrics: {
-      if (ctx.lyrics.active) {
-        await ctx.lyrics.close();
-        await i.deferUpdate();
-        return;
-      }
-      if (!music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
-      if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
-      await i.deferUpdate();
-      await ctx.lyrics.open(i.channel);
-      return;
-    }
     default:
       return;
   }
@@ -478,6 +454,7 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
 }
 
 async function runModal(i: ModalSubmitInteraction, ctx: Ctx) {
+  if (await runLibraryModal(i, ctx)) return;
   if (i.customId !== ADD_MODAL_ID) return;
   const voice = userVoiceChannel(i);
   if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");

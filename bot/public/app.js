@@ -141,6 +141,7 @@ function renderPlayer() {
   $("#t-loopq").classList.toggle("on", p.repeatMode === "queue");
   $("#t-loopt").classList.toggle("on", p.repeatMode === "track");
   $("#t-autoplay").classList.toggle("on", p.autoplay);
+  $('.ctl[data-act="shuffle"]').classList.toggle("on", Boolean(p.shuffle));
 
   const vol = $("#vol");
   if (document.activeElement !== vol) vol.value = p.volume;

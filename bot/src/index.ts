@@ -1,9 +1,13 @@
 import { ActivityType, Client, Events, GatewayIntentBits } from "discord.js";
 import { commandsJson } from "./commands/definitions.js";
-import { handleInteraction, type Ctx } from "./commands/handlers.js";
+import type { Ctx } from "./commands/common.js";
+import { handleInteraction } from "./commands/handlers.js";
 import { TrackCache } from "./commands/track-cache.js";
 import { loadConfig } from "./config.js";
 import { LavalinkAdmin } from "./lavalink-admin.js";
+import { HistoryStore } from "./library/history.js";
+import { PlaylistStore } from "./library/playlists.js";
+import { toStored } from "./library/stored-track.js";
 import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
@@ -28,8 +32,20 @@ const music = new MusicService(client, config, settings);
 music.setAutoplay(createAutoplay());
 alerts.attach(music);
 
+const playlists = new PlaylistStore(config.DATA_DIR);
+const history = new HistoryStore(config.DATA_DIR);
+
+// История прослушиваний: для топов, «Недавних» и радио.
+music.lavalink.on("trackStart", (_player, track) => {
+  const stored = track ? toStored(track) : null;
+  const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
+  if (stored && !track?.info.isStream) history.add(requester, stored);
+});
+
 const ctx: Ctx = {
   config,
+  playlists,
+  history,
   music,
   settings,
   playerMessage: new PlayerMessage(client, music, settings),
@@ -83,6 +99,8 @@ async function shutdown(signal: string) {
   log.info(`Получен ${signal}, выключаюсь`);
   try {
     await ctx.lyrics.close();
+    playlists.flush();
+    history.flush();
     await client.destroy();
   } finally {
     process.exit(0);

@@ -8,7 +8,7 @@ export const commands = [
     .setName("play")
     .setDescription("Включить трек, альбом или плейлист: ссылка или поиск")
     .addStringOption((o) =>
-      o.setName("запрос").setDescription("Название или ссылка (YouTube, Spotify, SoundCloud, Яндекс, VK, Apple Music)").setRequired(true).setAutocomplete(true).setMaxLength(500),
+      o.setName("запрос").setDescription("Название, ссылка или имя твоего плейлиста").setRequired(true).setAutocomplete(true).setMaxLength(500),
     )
     .addStringOption((o) => o.setName("площадка").setDescription("Где искать (по умолчанию — из настроек)").addChoices(...sourceChoices))
     .addBooleanOption((o) => o.setName("следующим").setDescription("Поставить в начало очереди")),
@@ -26,7 +26,10 @@ export const commands = [
     .setDescription("Показать очередь")
     .addIntegerOption((o) => o.setName("страница").setDescription("Номер страницы").setMinValue(1)),
   new SlashCommandBuilder().setName("nowplaying").setDescription("Показать мини-плеер внизу чата"),
-  new SlashCommandBuilder().setName("shuffle").setDescription("Перемешать очередь"),
+  new SlashCommandBuilder().setName("shuffle").setDescription("Режим перемешивания: включить или выключить"),
+  new SlashCommandBuilder().setName("playlists").setDescription("Мои плейлисты: создать, импортировать, включить"),
+  new SlashCommandBuilder().setName("browse").setDescription("Обзор: чарты, топ сервера, радио по истории"),
+  new SlashCommandBuilder().setName("like").setDescription("Добавить текущий трек в «Любимые» (или убрать)"),
   new SlashCommandBuilder()
     .setName("loop")
     .setDescription("Режим повтора")

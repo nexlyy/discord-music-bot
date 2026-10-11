@@ -25,6 +25,16 @@ const FALLBACK = {
   search: "🔎",
   settings: "⚙️",
   add: "➕",
+  heart: "❤️",
+  browse: "🧭",
+  effects: "🎚️",
+  clear: "🧹",
+  trash: "🗑️",
+  rename: "✏️",
+  top: "🏆",
+  radio: "📻",
+  recent: "🕘",
+  back: "⬅️",
 } as const;
 
 export type IconKey = keyof typeof FALLBACK;
