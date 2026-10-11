@@ -267,6 +267,13 @@ export async function runLibraryComponent(i: Component, ctx: Ctx): Promise<boole
     await followUp(i, await playStored(i, ctx, top.map((e) => e.track), { name: scope === "me" ? "Мой топ" : "Топ сервера" }));
     return true;
   }
+  if (id === BR.wrapped) {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    const message = await ctx.wrapped.build("month");
+    if (!message) await i.editReply({ content: "В этом месяце ещё ничего не слушали." });
+    else await i.editReply({ ...message, allowedMentions: { parse: [] } });
+    return true;
+  }
   if (id === BR.recent) {
     await i.update(buildRecentView(ctx.history.recent(userId, 25), settings));
     return true;

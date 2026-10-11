@@ -26,6 +26,7 @@ export const PLAYER_IDS = {
   options: "mp:opts",
   add: "mp:add",
   playlists: "mp:playlists",
+  lyrics: "mp:lyrics",
   browse: "mp:browse",
   settings: "mp:settings",
   leave: "mp:leave",
@@ -86,7 +87,6 @@ function optionsMenu(snap: PlayerSnapshot, settings: Settings) {
       { label: "Нравится", value: OPTION_VALUES.like, description: "Добавить в «Любимые» или убрать оттуда", emoji: icon("heart") },
       { label: "Добавить в плейлист", value: OPTION_VALUES.addTo, description: "Сохранить текущий трек в свой плейлист", emoji: icon("playlist") },
       { label: "Добавить трек", value: OPTION_VALUES.add, description: "Найти и поставить в очередь", emoji: icon("search") },
-      { label: "Текст песни", value: OPTION_VALUES.lyrics, description: "Синхронно с треком", emoji: icon("lyrics") },
       {
         label: "Эффекты",
         value: OPTION_VALUES.effects,
@@ -108,6 +108,7 @@ function bottomRow() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     iconButton(PLAYER_IDS.playlists, "playlist", { label: "Плейлисты" }),
     iconButton(PLAYER_IDS.browse, "browse", { label: "Обзор" }),
+    iconButton(PLAYER_IDS.lyrics, "lyrics", { label: "Текст" }),
     iconButton(PLAYER_IDS.settings, "settings"),
   );
 }

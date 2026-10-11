@@ -229,7 +229,9 @@ function fillGuildSelects() {
   const voiceOpts = g.voice.map((c) => `<option value="${c.id}">🔊 ${esc(c.name)}${c.members ? ` (${c.members})` : ""}</option>`).join("");
   $("#add-voice").innerHTML = `<option value="">Канал…</option>${voiceOpts}`;
   $('#settings-form [name="stay247ChannelId"]').innerHTML = `<option value="">— не выбран —</option>${voiceOpts}`;
-  $('#settings-form [name="musicTextChannelId"]').innerHTML = `<option value="">Где вызвали команду</option>${g.text.map((c) => `<option value="${c.id}"># ${esc(c.name)}</option>`).join("")}`;
+  const textOpts = g.text.map((c) => `<option value="${c.id}"># ${esc(c.name)}</option>`).join("");
+  $('#settings-form [name="musicTextChannelId"]').innerHTML = `<option value="">Где вызвали команду</option>${textOpts}`;
+  $('#settings-form [name="wrappedChannelId"]').innerHTML = `<option value="">Канал мини-плеера</option>${textOpts}`;
 }
 
 let suggestTimer, suggestSeq = 0, suggestSel = -1, suggestItems = [];

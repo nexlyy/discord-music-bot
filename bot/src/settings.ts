@@ -41,6 +41,12 @@ export const settingsSchema = z.object({
   playerRefreshSec: z.number().int().min(5).max(60).default(10),
   /** Показывать список «Дальше» в мини-плеере */
   showUpNext: z.boolean().default(false),
+  /** Показывать играющий трек в статусе голосового канала */
+  voiceStatus: z.boolean().default(true),
+  /** Публиковать итоги месяца 1-го числа в 12:00 МСК */
+  wrappedAuto: z.boolean().default(true),
+  /** Канал для итогов месяца; null — канал мини-плеера */
+  wrappedChannelId: snowflake.nullable().default(null),
   /** Вебхук Discord для уведомлений о сбоях */
   alertWebhookUrl: z.url().nullable().default(null),
 });

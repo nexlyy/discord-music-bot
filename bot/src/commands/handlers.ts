@@ -21,6 +21,7 @@ import { LYRICS_IDS } from "../ui/lyrics-view.js";
 import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
 import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
 import { fromStored } from "../library/stored-track.js";
+import type { WrappedPeriod } from "../wrapped/wrapped.js";
 import { assertSameChannel, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
 import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
 
@@ -119,6 +120,17 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return openBrowse(i, ctx);
     case "like":
       return toggleLike(i, ctx);
+    case "wrapped": {
+      await i.deferReply();
+      const period = (i.options.getString("период") ?? "month") as WrappedPeriod;
+      const message = await ctx.wrapped.build(period);
+      if (!message) {
+        await i.editReply({ content: "За этот период ещё ничего не слушали — итоги появятся, когда заиграет музыка." });
+        return;
+      }
+      await i.editReply({ ...message, allowedMentions: { parse: [] } });
+      return;
+    }
     case "loop": {
       assertSameChannel(i, music);
       const mode = i.options.getString("режим", true) as RepeatMode;
@@ -412,6 +424,18 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
   // Просмотр очереди, плейлисты, обзор и настройки доступны всем, остальное — только из канала бота.
   if (id === PLAYER_IDS.playlists) return openPlaylists(i, ctx);
   if (id === PLAYER_IDS.browse) return openBrowse(i, ctx);
+  if (id === PLAYER_IDS.lyrics) {
+    if (ctx.lyrics.active) {
+      await ctx.lyrics.close();
+      await i.deferUpdate();
+      return;
+    }
+    if (!music.player?.queue.current) throw new MusicError("Сейчас ничего не играет.");
+    if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
+    await i.deferUpdate();
+    await ctx.lyrics.open(i.channel);
+    return;
+  }
   if (id === PLAYER_IDS.options && i.isStringSelectMenu() && (await runPersonalOption(i, ctx))) return;
   if (id === PLAYER_IDS.queue) {
     await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), 1), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });

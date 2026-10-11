@@ -135,6 +135,13 @@
             <label class="field"><span>Цвет полосы</span><input name="accentColor" type="color"></label>
             <label class="field"><span>Обновлять прогресс каждые, сек</span><input name="playerRefreshSec" type="number" min="5" max="60"></label>
             <label class="field switch"><span>Показывать блок «Дальше»</span><input name="showUpNext" type="checkbox"></label>
+            <label class="field switch"><span>Трек в статусе голосового канала</span><input name="voiceStatus" type="checkbox"></label>
+          </div>
+          <div class="card">
+            <h2>Итоги месяца</h2>
+            <label class="field switch"><span>Публиковать 1-го числа в 12:00 МСК</span><input name="wrappedAuto" type="checkbox"></label>
+            <label class="field"><span>Канал для итогов</span><select name="wrappedChannelId" data-kind="text"></select></label>
+            <p class="hint">Картинка с топом треков и исполнителей, главным слушателем и диджеем. Вручную — командой <code>/wrapped</code>.</p>
           </div>
           <div class="card">
             <h2>Мониторинг</h2>

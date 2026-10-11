@@ -91,6 +91,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
   private trackNumber = 0;
+  /** Вызывается перед тем, как бот сам выходит из канала (например, чтобы снять статус канала). */
+  beforeLeave: ((channelId: string) => Promise<void>) | null = null;
   private shuffleOn = false;
   private originalOrder: (Track | UnresolvedTrack)[] = [];
 
@@ -387,13 +389,13 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       await p.queue.splice(0, p.queue.tracks.length);
       this.emit("update", "queue");
     } else {
-      await p.destroy("Остановлено пользователем");
+      await this.destroyPlayer(p, "Остановлено пользователем");
     }
   }
 
   async leave(): Promise<void> {
     const p = this.requirePlayer();
-    await p.destroy("Выход по команде");
+    await this.destroyPlayer(p, "Выход по команде");
   }
 
   get shuffleEnabled(): boolean {
@@ -561,6 +563,20 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
   /* --------------------------- выход из канала --------------------------- */
 
+  private async destroyPlayer(p: Player, reason: string) {
+    if (p.voiceChannelId && this.beforeLeave) await this.beforeLeave(p.voiceChannelId).catch(() => undefined);
+    await p.destroy(reason);
+  }
+
+  /** Люди (не боты) в канале с ботом. */
+  channelListeners(): string[] {
+    const id = this.player?.voiceChannelId;
+    if (!id) return [];
+    const channel = this.client.guilds.cache.get(this.guildId)?.channels.cache.get(id);
+    if (!channel || !channel.isVoiceBased()) return [];
+    return [...channel.members.filter((m) => !m.user.bot).keys()];
+  }
+
   private humansIn(channelId: string | null): number {
     if (!channelId) return 0;
     const channel = this.client.guilds.cache.get(this.guildId)?.channels.cache.get(channelId);
@@ -579,7 +595,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       if (reason === "queue" && p.queue.current) return;
       if (reason === "empty" && this.humansIn(p.voiceChannelId) > 0) return;
       log.info(`Выхожу из канала: ${reason === "queue" ? "очередь закончилась" : "в канале никого"}`);
-      p.destroy(reason === "queue" ? "Очередь закончилась" : "В канале никого").catch((e) => log.warn(e));
+      this.destroyPlayer(p, reason === "queue" ? "Очередь закончилась" : "В канале никого").catch((e) => log.warn(e));
     }, seconds * 1000);
   }
 

@@ -11,6 +11,7 @@ import type { SettingsStore } from "../settings.js";
 import { sourceInfo } from "../sources.js";
 import type { LiveLyrics } from "../ui/lyrics-view.js";
 import type { PlayerMessage } from "../ui/player-message.js";
+import type { Wrapped } from "../wrapped/wrapped.js";
 import type { TrackCache } from "./track-cache.js";
 
 const log = createLogger("commands");
@@ -19,6 +20,7 @@ export interface Ctx {
   config: Config;
   playlists: PlaylistStore;
   history: HistoryStore;
+  wrapped: Wrapped;
   music: MusicService;
   settings: SettingsStore;
   playerMessage: PlayerMessage;

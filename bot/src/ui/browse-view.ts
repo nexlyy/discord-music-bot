@@ -25,6 +25,7 @@ export const BR = {
   radio: "br:radio:",
   playTop: "br:playtop:",
   playRecent: "br:playrecent",
+  wrapped: "br:wrapped",
 } as const;
 
 export const FX = { set: "fx:set" } as const;
@@ -58,6 +59,7 @@ export function buildBrowseHome(settings: Settings, historySize: number, note?: 
         btn(`${BR.top}server`, "top", "Топ сервера"),
         btn(`${BR.top}me`, "heart", "Мой топ"),
         btn(BR.recent, "recent", "Недавние"),
+        btn(BR.wrapped, "top", "Итоги месяца"),
       ),
     )
     .addActionRowComponents(

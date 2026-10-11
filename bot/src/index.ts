@@ -8,6 +8,8 @@ import { LavalinkAdmin } from "./lavalink-admin.js";
 import { HistoryStore } from "./library/history.js";
 import { PlaylistStore } from "./library/playlists.js";
 import { toStored } from "./library/stored-track.js";
+import { VoiceStatus } from "./ui/voice-status.js";
+import { Wrapped } from "./wrapped/wrapped.js";
 import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
@@ -35,17 +37,39 @@ alerts.attach(music);
 const playlists = new PlaylistStore(config.DATA_DIR);
 const history = new HistoryStore(config.DATA_DIR);
 
-// История прослушиваний: для топов, «Недавних» и радио.
+// История прослушиваний: для топов, «Недавних», радио и итогов месяца.
+let playing: { startedAt: number; duration: number } | null = null;
+const finishPlay = () => {
+  if (playing) history.addListenedMs(Math.min(Date.now() - playing.startedAt, playing.duration));
+  playing = null;
+};
 music.lavalink.on("trackStart", (_player, track) => {
+  finishPlay();
   const stored = track ? toStored(track) : null;
   const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
-  if (stored && !track?.info.isStream) history.add(requester, stored);
+  if (stored && !track?.info.isStream) {
+    history.add(requester, stored);
+    playing = { startedAt: Date.now(), duration: track!.info.duration };
+  }
 });
+music.lavalink.on("trackEnd", finishPlay);
+music.lavalink.on("queueEnd", finishPlay);
+music.lavalink.on("playerDestroy", finishPlay);
+
+// Кто сколько слушал: раз в 30 секунд начисляем время тем, кто в канале, пока музыка играет.
+setInterval(() => {
+  const p = music.player;
+  if (p?.queue.current && p.playing && !p.paused) history.addListeners(music.channelListeners(), 30);
+}, 30_000);
+
+const wrapped = new Wrapped(client, config, settings, history);
+const voiceStatus = new VoiceStatus(client, music, settings);
 
 const ctx: Ctx = {
   config,
   playlists,
   history,
+  wrapped,
   music,
   settings,
   playerMessage: new PlayerMessage(client, music, settings),
@@ -80,6 +104,8 @@ client.once(Events.ClientReady, async (c) => {
   c.user.setActivity("/play", { type: ActivityType.Custom });
   await syncEmojis(c);
   await music.init();
+  wrapped.start();
+  void voiceStatus;
   void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**.`, 60_000);
 });
 

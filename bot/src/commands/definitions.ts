@@ -29,6 +29,15 @@ export const commands = [
   new SlashCommandBuilder().setName("shuffle").setDescription("Режим перемешивания: включить или выключить"),
   new SlashCommandBuilder().setName("playlists").setDescription("Мои плейлисты: создать, импортировать, включить"),
   new SlashCommandBuilder().setName("browse").setDescription("Обзор: чарты, топ сервера, радио по истории"),
+  new SlashCommandBuilder()
+    .setName("wrapped")
+    .setDescription("Музыкальные итоги сервера: топ треков, слушатели, диджеи")
+    .addStringOption((o) =>
+      o
+        .setName("период")
+        .setDescription("За какой период (по умолчанию этот месяц)")
+        .addChoices({ name: "Этот месяц", value: "month" }, { name: "Прошлый месяц", value: "last" }, { name: "Всё время", value: "all" }),
+    ),
   new SlashCommandBuilder().setName("like").setDescription("Добавить текущий трек в «Любимые» (или убрать)"),
   new SlashCommandBuilder()
     .setName("loop")
