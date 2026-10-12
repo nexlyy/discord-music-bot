@@ -1,4 +1,4 @@
-import type { Client, Message, SendableChannels } from "discord.js";
+import { Events, type Client, type Message, type SendableChannels } from "discord.js";
 import { createLogger } from "../logger.js";
 import type { MusicService } from "../music/service.js";
 import type { UpdateReason } from "../music/types.js";
@@ -15,6 +15,7 @@ export class PlayerMessage {
   private ticker: NodeJS.Timeout | null = null;
   private busy: Promise<void> = Promise.resolve();
   private resendNext = false;
+  private stickyTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly client: Client,
@@ -22,12 +23,30 @@ export class PlayerMessage {
     private readonly settings: SettingsStore,
   ) {
     music.on("update", (reason) => this.onUpdate(reason));
+    client.on(Events.MessageCreate, (m) => this.onChannelMessage(m));
     settings.on("change", (_s, patch) => {
       if ("playerRefreshSec" in patch) this.restartTicker();
       if ("musicTextChannelId" in patch) this.resendNext = true;
       this.onUpdate("settings");
     });
     this.restartTicker();
+  }
+
+  /**
+   * Плеер «прилипает» к низу канала: когда в канале кто-то написал, через 4 с тишины плеер
+   * переезжает под новые сообщения. Канал от этого не становится «непрочитанным» сильнее —
+   * его уже пометило чужое сообщение. Сообщения ботов (в том числе свои) переезд не вызывают.
+   */
+  private onChannelMessage(m: Message) {
+    if (!this.message || m.channelId !== this.message.channelId) return;
+    // Только сообщения людей: иначе два бота с «прилипающими» плеерами перепрыгивали бы друг друга бесконечно.
+    if (m.author.bot || m.system) return;
+    if (!this.settings.get().stickyPlayer) return;
+    if (this.stickyTimer) clearTimeout(this.stickyTimer);
+    this.stickyTimer = setTimeout(() => {
+      this.stickyTimer = null;
+      this.enqueue(() => this.render(true));
+    }, 4000);
   }
 
   private restartTicker() {

@@ -36,7 +36,8 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     case "play": {
       const voice = userVoiceChannel(i);
       if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");
-      await i.deferReply();
+      // Ответ видит только автор: кто что заказал, и так видно в шапке плеера.
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
       const raw = i.options.getString("запрос", true);
       const sourceOpt = i.options.getString("площадка");
       const source = isSearchSourceKey(sourceOpt) ? sourceOpt : undefined;
@@ -90,14 +91,14 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     case "stop": {
       assertSameChannel(i, music);
       await music.stop();
-      return say(i, settings.get().stay247 ? "⏹ Остановлено, очередь очищена. Остаюсь в канале (24/7)." : "⏹ Остановлено, до встречи!", false);
+      return say(i, settings.get().stay247 ? "⏹ Остановлено, очередь очищена. Остаюсь в канале (24/7)." : "⏹ Остановлено, до встречи!");
     }
     case "leave": {
       assertSameChannel(i, music);
       const was247 = settings.get().stay247;
       if (was247) settings.update({ stay247: false });
       await music.leave();
-      return say(i, `👋 Вышел из канала${was247 ? ". Режим 24/7 выключен." : ""}`, false);
+      return say(i, `👋 Вышел из канала${was247 ? ". Режим 24/7 выключен." : ""}`);
     }
     case "queue": {
       const page = i.options.getInteger("страница") ?? 1;
@@ -120,6 +121,26 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return openBrowse(i, ctx);
     case "like":
       return toggleLike(i, ctx);
+    case "cleanup": {
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      const channel = i.channel;
+      if (!channel || !("messages" in channel)) throw new MusicError("Здесь нечего чистить.");
+      const me = i.client.user.id;
+      let deleted = 0;
+      let before: string | undefined;
+      // Только свои сообщения бота за последние 300 сообщений канала; плеер и закреплённые не трогаем.
+      for (let page = 0; page < 3; page++) {
+        const batch = await channel.messages.fetch({ limit: 100, before });
+        if (batch.size === 0) break;
+        for (const m of batch.values()) {
+          if (m.author.id !== me || m.pinned || ctx.playerMessage.isPlayerMessage(m.id)) continue;
+          await m.delete().then(() => deleted++, () => undefined);
+        }
+        before = batch.lastKey();
+      }
+      await i.editReply(deleted ? `🧹 Удалено моих сообщений: ${deleted}` : "🧹 Моих старых сообщений здесь нет");
+      return;
+    }
     case "wrapped": {
       await i.deferReply();
       const period = (i.options.getString("период") ?? "month") as WrappedPeriod;
@@ -186,11 +207,11 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
         settings.update({ stay247: true, stay247ChannelId: voice });
         await music.ensurePlayer(voice, i.channelId);
         music.emit("update", "settings");
-        return say(i, `🌙 Режим 24/7 включён: остаюсь в <#${voice}> и вернусь туда после перезапуска`, false);
+        return say(i, `🌙 Режим 24/7 включён: остаюсь в <#${voice}> и вернусь туда после перезапуска`);
       }
       settings.update({ stay247: false });
       music.emit("update", "settings");
-      return say(i, "☀️ Режим 24/7 выключен", false);
+      return say(i, "☀️ Режим 24/7 выключен");
     }
     case "panel": {
       return say(

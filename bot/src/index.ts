@@ -27,7 +27,8 @@ const settings = new SettingsStore(config.DATA_DIR);
 const alerts = new Alerts(config, settings);
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  // GuildMessages нужен только чтобы знать, что в канале появилось сообщение (текст боту не нужен).
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
 });
 
 const music = new MusicService(client, config, settings);

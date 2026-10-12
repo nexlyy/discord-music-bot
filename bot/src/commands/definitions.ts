@@ -80,6 +80,7 @@ export const commands = [
     .setName("247")
     .setDescription("Режим 24/7: бот не выходит из канала")
     .addBooleanOption((o) => o.setName("включить").setDescription("Без параметра — переключить")),
+  new SlashCommandBuilder().setName("cleanup").setDescription("Удалить старые сообщения бота в этом канале (плеер и закреплённые останутся)"),
   new SlashCommandBuilder().setName("panel").setDescription("Как открыть веб-панель настроек"),
 ];
 

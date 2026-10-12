@@ -39,6 +39,8 @@ export const settingsSchema = z.object({
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#D4783A"),
   /** Как часто обновлять прогресс в мини-плеере, сек */
   playerRefreshSec: z.number().int().min(5).max(60).default(10),
+  /** Переносить плеер вниз канала, когда в канале пишут */
+  stickyPlayer: z.boolean().default(true),
   /** Показывать список «Дальше» в мини-плеере */
   showUpNext: z.boolean().default(false),
   /** Показывать играющий трек в статусе голосового канала */
