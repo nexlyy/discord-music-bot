@@ -1,4 +1,6 @@
 import type { RepeatMode, Track, UnresolvedTrack } from "lavalink-client";
+import { playlistMeta } from "./playlist-meta.js";
+import { isBridgeUri, permalinkOf } from "./soundcloud.js";
 
 export interface Requester {
   id: string;
@@ -59,17 +61,22 @@ export interface PlayerSnapshot {
 
 export function toTrackView(track: Track | UnresolvedTrack): TrackView {
   const info = track.info;
+  const fromBridge = isBridgeUri(info.uri);
+  const scDrm = typeof info.identifier === "string" && info.identifier.startsWith("sc-") && !info.uri;
+  const meta = playlistMeta.get(track);
+  const playlistName = typeof track.userData?.playlistName === "string" ? track.userData.playlistName : (meta?.playlistName ?? null);
+  const playlistUrl = typeof track.userData?.playlistUrl === "string" ? track.userData.playlistUrl : (meta?.playlistUrl ?? null);
   return {
     title: info.title ?? "Без названия",
     author: info.author ?? "Неизвестно",
-    uri: info.uri ?? null,
+    uri: fromBridge ? permalinkOf(info.uri!) : (info.uri ?? null),
     duration: info.duration ?? 0,
     isStream: Boolean(info.isStream),
     artworkUrl: info.artworkUrl ?? track.pluginInfo?.artworkUrl ?? track.pluginInfo?.albumArtUrl ?? null,
-    sourceName: info.sourceName ?? "unknown",
+    sourceName: fromBridge || scDrm ? "soundcloud" : (info.sourceName ?? "unknown"),
     requester: requesterOf(track),
-    playlistName: typeof track.userData?.playlistName === "string" ? track.userData.playlistName : null,
-    playlistUrl: typeof track.userData?.playlistUrl === "string" ? track.userData.playlistUrl : null,
+    playlistName,
+    playlistUrl,
   };
 }
 

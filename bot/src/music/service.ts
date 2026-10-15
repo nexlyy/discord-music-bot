@@ -20,6 +20,8 @@ import {
   type SearchSourceKey,
 } from "../sources.js";
 import { humanizeLoadError, isYoutubeAuthError } from "./errors.js";
+import { playlistMeta } from "./playlist-meta.js";
+import { prefetch, scLoad, scSearch } from "./soundcloud.js";
 import {
   MusicError,
   toTrackView,
@@ -217,7 +219,12 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const managers = this.availableManagers();
 
     let result: SearchResult;
-    if (isUrl(trimmed)) {
+    if (isUrl(trimmed) && managerForUrl(trimmed) === "soundcloud") {
+      // SoundCloud — через мост: встроенный источник не играет новые треки (AAC HLS).
+      result = await scLoad(trimmed, this.lavalink, requester);
+    } else if (!isUrl(trimmed) && (source ?? this.settings.get().defaultSource) === "sc") {
+      result = await scSearch(trimmed, this.lavalink, requester);
+    } else if (isUrl(trimmed)) {
       const manager = managerForUrl(trimmed);
       if (manager && managers.size > 0 && !managers.has(manager)) {
         throw new MusicError(`${MANAGER_LABELS[manager] ?? manager} не подключена. Добавь токен в .env (см. README).`);
@@ -249,7 +256,10 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       tracks = req.tracks.slice(0, s.maxPlaylistTracks);
       playlistName = req.playlistName ?? null;
       if (playlistName) {
-        for (const t of tracks) t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl: req.playlistUrl ?? null };
+        for (const t of tracks) {
+          t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl: req.playlistUrl ?? null };
+          playlistMeta.set(t, { playlistName, playlistUrl: req.playlistUrl ?? null });
+        }
       }
     } else if (req.track) {
       tracks = [req.track];
@@ -259,7 +269,11 @@ export class MusicService extends EventEmitter<ServiceEvents> {
         tracks = result.tracks.slice(0, s.maxPlaylistTracks);
         playlistName = result.playlist?.name ?? result.playlist?.title ?? "Плейлист";
         const playlistUrl = isUrl(req.query) ? req.query.trim() : null;
-        for (const t of tracks) t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl };
+        for (const t of tracks) {
+          t.userData = { ...(t.userData ?? {}), playlistName, playlistUrl };
+          // userData отложенных треков (SoundCloud) теряется при подгрузке — держим копию по ссылке на объект.
+          playlistMeta.set(t, { playlistName, playlistUrl });
+        }
       } else {
         tracks = result.tracks.slice(0, 1);
       }
@@ -293,6 +307,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
     if (idle) await player.play({ paused: false });
     else this.emit("update", "queue");
+    // SoundCloud: заранее качаем первые треки, чтобы старт был без паузы.
+    for (const t of player.queue.tracks.slice(0, 2)) prefetch(t);
 
     return { added: toAdd, skipped, playlistName, startedNow: idle, position };
   }
@@ -659,6 +675,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
     lm.on("trackStart", (player) => {
       this.trackNumber++;
+      prefetch(player.queue.tracks[0]);
       this.cancelLeave("queue");
       log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
       this.emit("update", "trackStart");

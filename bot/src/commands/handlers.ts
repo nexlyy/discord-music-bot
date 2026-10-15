@@ -20,7 +20,7 @@ import { SEARCH_SOURCES, SEARCH_SOURCE_KEYS, isSearchSourceKey, isUrl, sourceInf
 import { LYRICS_IDS } from "../ui/lyrics-view.js";
 import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
 import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
-import { fromStored } from "../library/stored-track.js";
+import { fromStored, withRequester } from "../library/stored-track.js";
 import type { WrappedPeriod } from "../wrapped/wrapped.js";
 import { assertSameChannel, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
 import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
@@ -58,7 +58,7 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
         return;
       }
       const cached = ctx.cache.getTrack(raw);
-      const track = cached ? ({ ...cached, requester: toRequester(i.user) } as Track) : undefined;
+      const track = cached ? withRequester(cached, music.lavalink, toRequester(i.user)) : undefined;
       const query = ctx.cache.getText(raw) ?? raw;
       const result = await music.play({
         query,
