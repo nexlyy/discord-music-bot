@@ -47,6 +47,17 @@ services:
     restart: unless-stopped
     mem_limit: 512m
 
+  # Мост SoundCloud: новые треки (AAC HLS) качает yt-dlp и отдаёт Lavalink обычным файлом
+  sc-bridge:
+    build: ./sc-bridge
+    container_name: music-sc-bridge
+    restart: unless-stopped
+    environment:
+      CACHE_MB: "1024"
+    volumes:
+      - ./sc-cache:/cache
+    mem_limit: 400m
+
   bot:
     build: ./bot
     container_name: music-bot

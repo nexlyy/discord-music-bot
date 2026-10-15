@@ -5,3 +5,4 @@ lavalink/logs/
 bot/node_modules/
 bot/dist/
 *.log
+sc-cache/
