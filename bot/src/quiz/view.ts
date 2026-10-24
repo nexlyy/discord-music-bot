@@ -40,14 +40,14 @@ function leadersLine(leaders: Leader[]): string {
   return top.length ? `-# Лидеры: ${top.map((l) => `<@${l.userId}> ${fmt(l.points)}`).join(" · ")}` : "";
 }
 
-export function lobbyView(o: { game: string; accent: string; mode: QuizMode; rounds: number; voiceChannelId: string; startsAt: number; hostId: string }) {
+export function lobbyView(o: { game: string; accent: string; mode: QuizMode; rounds: number; seconds: number; voiceChannelId: string; startsAt: number; hostId: string }) {
   const c = new ContainerBuilder()
     .setAccentColor(hexToInt(o.accent))
     .addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         [
           "## 🎧 Угадай трек",
-          `Раундов: **${o.rounds}** · по **10 секунд** · режим **${MODE_LABEL[o.mode]}**`,
+          `Раундов: **${o.rounds}** · по **${o.seconds} секунд** · режим **${MODE_LABEL[o.mode]}**`,
           `Играют все, кто в <#${o.voiceChannelId}>. В каждом раунде выбери **исполнителя** и **название**: за каждое до 1000 очков, чем быстрее, тем больше. Ответ один, передумать нельзя.`,
           "",
           `Подбираю треки по вашей истории… старт ${ts(o.startsAt)}`,

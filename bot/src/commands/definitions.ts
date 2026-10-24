@@ -99,6 +99,12 @@ export const commands = [
             .setName("раунды")
             .setDescription("Сколько раундов (по умолчанию 10)")
             .addChoices({ name: "5", value: 5 }, { name: "10", value: 10 }, { name: "15", value: 15 }, { name: "20", value: 20 }),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("время")
+            .setDescription("Сколько секунд звучит трек (по умолчанию 10)")
+            .addChoices({ name: "5 секунд", value: 5 }, { name: "10 секунд", value: 10 }, { name: "15 секунд", value: 15 }, { name: "20 секунд", value: 20 }, { name: "25 секунд", value: 25 }),
         ),
     )
     .addSubcommand((s) => s.setName("stop").setDescription("Остановить игру"))

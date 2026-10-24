@@ -21,7 +21,6 @@ import { toTrackView } from "../music/types.js";
 import { finalView, lobbyView, noticeView, revealView, roundView, topView, type Leader } from "./view.js";
 
 const log = createLogger("quiz");
-const ROUND_MS = 10_000;
 const REVEAL_MS = 5_000;
 const LOBBY_MS = 8_000;
 
@@ -75,7 +74,14 @@ class QuizGame {
     private readonly store: QuizStore,
     readonly mode: QuizMode,
     readonly rounds: number,
+    /** Сколько звучит фрагмент, мс */
+    readonly roundMs: number,
   ) {}
+
+  /** После старта фрагмента трек должен доиграть раунд и показ ответа. */
+  private get tailMs() {
+    return this.roundMs + REVEAL_MS + 3_000;
+  }
 
   private get accent() {
     return this.settings.get().accentColor;
@@ -117,7 +123,7 @@ class QuizGame {
 
     this.startsAt = Date.now() + LOBBY_MS;
     this.message = await channel.send({
-      ...lobbyView({ game: this.id, accent: this.accent, mode: this.mode, rounds: this.rounds, voiceChannelId, startsAt: this.startsAt, hostId }),
+      ...lobbyView({ game: this.id, accent: this.accent, mode: this.mode, rounds: this.rounds, seconds: this.roundMs / 1000, voiceChannelId, startsAt: this.startsAt, hostId }),
       allowedMentions: { parse: [] },
     });
   }
@@ -133,7 +139,7 @@ class QuizGame {
       }
 
       let idx = 0;
-      let nextStart = startPosition(this.player, answers[0]!.track, this.mode);
+      let nextStart = startPosition(this.player, answers[0]!.track, this.mode, this.tailMs);
       for (let r = 1; r <= this.rounds && !this.aborted; ) {
         if (this.music.channelListeners().length === 0) {
           this.failure = this.played ? null : "Все вышли из голосового канала — игра остановлена.";
@@ -143,7 +149,7 @@ class QuizGame {
         if (!item) break;
         const position = await nextStart.catch(() => 0);
         const following = answers[idx];
-        nextStart = following ? startPosition(this.player, following.track, this.mode) : Promise.resolve(0);
+        nextStart = following ? startPosition(this.player, following.track, this.mode, this.tailMs) : Promise.resolve(0);
 
         if (!(await this.playItem(item, position))) {
           log.info(`Трек не запустился, беру запасной: ${item.artist} — ${item.title}`);
@@ -202,7 +208,7 @@ class QuizGame {
       correctArtist: a.correctIndex,
       correctTitle: t.correctIndex,
       startedAt,
-      endsAt: startedAt + ROUND_MS,
+      endsAt: startedAt + this.roundMs,
       answers: new Map(),
       finish,
     };
@@ -288,7 +294,7 @@ class QuizGame {
     }
     const correct = index === (part === "a" ? round.correctArtist : round.correctTitle);
     const elapsed = Math.max(0, Date.now() - round.startedAt);
-    const points = correct ? Math.max(100, Math.round(1000 - 900 * Math.min(1, elapsed / ROUND_MS))) : 0;
+    const points = correct ? Math.max(100, Math.round(1000 - 900 * Math.min(1, elapsed / this.roundMs))) : 0;
     entry[part] = { correct, points };
     round.answers.set(i.user.id, entry);
 
@@ -389,7 +395,7 @@ export class QuizManager {
     return this.game !== null;
   }
 
-  async start(i: ChatInputCommandInteraction, mode: QuizMode, rounds: number) {
+  async start(i: ChatInputCommandInteraction, mode: QuizMode, rounds: number, seconds: number) {
     if (this.game) throw new MusicError("Игра уже идёт — присоединяйся! 🎧");
     const voice = (i.member as GuildMember | null)?.voice?.channelId;
     if (!voice) throw new MusicError("Зайди в голосовой канал — играют те, кто в войсе.");
@@ -400,7 +406,7 @@ export class QuizManager {
     const channel = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isSendable()) throw new MusicError("Не могу писать в канал для игры.");
 
-    const game = new QuizGame(this.music, this.history, this.settings, this.store, mode, rounds);
+    const game = new QuizGame(this.music, this.history, this.settings, this.store, mode, rounds, Math.min(Math.max(seconds, 5), 25) * 1000);
     this.game = game;
     try {
       await game.prepare(voice, i.user.id, channel);
@@ -410,7 +416,7 @@ export class QuizManager {
       throw e;
     }
     await i.editReply(`🎧 Игра началась в <#${channelId}>, удачи!`);
-    log.info(`Игра ${game.id}: ${rounds} раундов, режим ${mode}`);
+    log.info(`Игра ${game.id}: ${rounds} раундов по ${seconds} с, режим ${mode}`);
     void game.run().finally(() => {
       if (this.game === game) this.game = null;
     });

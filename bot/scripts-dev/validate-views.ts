@@ -29,7 +29,7 @@ const cases: Record<string, () => { components: { toJSON(): unknown }[] }> = {
   topEmpty: () => buildTopView("me", [], settings),
   recent: () => buildRecentView(Array.from({ length: 30 }, (_, i) => st(i)), settings),
   effects: () => buildEffectsCard({ bass: true, nightcore: false, vaporwave: false, rotation: true, karaoke: false, tremolo: false, lowPass: false }, settings),
-  quizLobby: () => lobbyView({ game: "abc123", accent: "#D4783A", mode: "drop", rounds: 10, voiceChannelId: "1", startsAt: Date.now() + 8000, hostId: "1" }),
+  quizLobby: () => lobbyView({ game: "abc123", accent: "#D4783A", mode: "drop", rounds: 10, seconds: 25, voiceChannelId: "1", startsAt: Date.now() + 8000, hostId: "1" }),
   quizRound: () => roundView({ game: "abc123", accent: "#D4783A", mode: "drop", round: 3, rounds: 10, endsAt: Date.now() + 10000, artists: ["Исполнитель с очень длинным именем ".repeat(4), "Кино", "Земфира", "The Weeknd"], titles: ["Группа крови", "Искала", "Blinding Lights", "Трек ".repeat(30)], answered: 2, listeners: 4, leaders: [{ userId: "1", points: 3400, artist: 3, title: 2 }] }),
   quizRound2opts: () => roundView({ game: "abc123", accent: "#D4783A", mode: "start", round: 1, rounds: 5, endsAt: Date.now() + 10000, artists: ["A", "B"], titles: ["C", "D"], answered: 0, listeners: 1, leaders: [] }),
   quizReveal: () => revealView({ game: "abc123", accent: "#D4783A", mode: "drop", round: 3, rounds: 10, artists: ["A", "B", "C", "D"], titles: ["E", "F", "G", "H"], leaders: [], artist: "Кино", title: "Группа крови", uri: "https://youtu.be/x", artworkUrl: "https://i.scdn.co/image/x", correctArtist: 1, correctTitle: 2, artistWinners: [{ userId: "1", points: 900 }], titleWinners: [], nextAt: Date.now() + 5000 }),

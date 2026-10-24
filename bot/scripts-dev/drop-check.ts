@@ -12,6 +12,6 @@ const tracks: [string, string, number][] = [
 ];
 for (const [author, title, duration] of tracks) {
   const track = { info: { title, author, duration, identifier: title, sourceName: "spotify", isStream: false } } as never;
-  const pos = await startPosition(fakePlayer, track, "drop");
+  const pos = await startPosition(fakePlayer, track, "drop", 33_000);
   console.log(`${author} — ${title}: дроп с ${formatDuration(pos)} (из ${formatDuration(duration)}, треть = ${formatDuration(duration * 0.33)})`);
 }

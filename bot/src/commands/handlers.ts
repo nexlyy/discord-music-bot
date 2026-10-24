@@ -124,7 +124,9 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return toggleLike(i, ctx);
     case "quiz": {
       const sub = i.options.getSubcommand();
-      if (sub === "start") return ctx.quiz.start(i, i.options.getString("режим", true) as QuizMode, i.options.getInteger("раунды") ?? 10);
+      if (sub === "start") {
+        return ctx.quiz.start(i, i.options.getString("режим", true) as QuizMode, i.options.getInteger("раунды") ?? 10, i.options.getInteger("время") ?? 10);
+      }
       if (sub === "stop") {
         await ctx.quiz.stop(i);
         return say(i, "⏹ Останавливаю игру — сейчас покажу итоги");
