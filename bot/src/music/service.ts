@@ -95,6 +95,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
   private trackNumber = 0;
+  /** Восстановление после перезапуска бота: вызывается один раз, когда Lavalink готов. */
+  onFirstReady: (() => Promise<void>) | null = null;
   /** Идёт «Угадай трек»: играющий трек скрыт, управление плеером заблокировано. */
   quietMode = false;
   /** Вызывается перед тем, как бот сам выходит из канала (например, чтобы снять статус канала). */
@@ -762,6 +764,11 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     log.info(`Lavalink готов (${resumed ? "сессия восстановлена" : "новая сессия"}), площадки: ${[...this.availableManagers()].join(", ")}`);
     this.emit("nodeUp", node);
     if (!resumed) await this.recoverPlayers(node);
+    if (this.onFirstReady) {
+      const restore = this.onFirstReady;
+      this.onFirstReady = null;
+      await restore().catch((e) => log.warn("Восстановление сессии:", e));
+    }
     await this.ensureStay247();
     this.emit("update", "connect");
   }

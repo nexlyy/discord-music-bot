@@ -6,6 +6,7 @@ import { TrackCache } from "./commands/track-cache.js";
 import { loadConfig } from "./config.js";
 import { LavalinkAdmin } from "./lavalink-admin.js";
 import { HistoryStore } from "./library/history.js";
+import { SessionKeeper } from "./music/session.js";
 import { PlaylistStore } from "./library/playlists.js";
 import { toStored } from "./library/stored-track.js";
 import { VoiceStatus } from "./ui/voice-status.js";
@@ -38,6 +39,12 @@ music.setAutoplay(createAutoplay());
 alerts.attach(music);
 
 const playlists = new PlaylistStore(config.DATA_DIR);
+
+// Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска.
+const sessions = new SessionKeeper(music, config.DATA_DIR);
+const pendingSession = sessions.takePending();
+if (pendingSession) music.onFirstReady = () => sessions.restore(pendingSession);
+sessions.start();
 const history = new HistoryStore(config.DATA_DIR);
 
 // История прослушиваний: для топов, «Недавних», радио и итогов месяца.
@@ -153,6 +160,7 @@ process.on("uncaughtException", (e) => {
 async function shutdown(signal: string) {
   log.info(`Получен ${signal}, выключаюсь`);
   try {
+    sessions.saveAndFreeze();
     await ctx.lyrics.closeAll("Бот перезапускается — открой текст заново через минуту");
     playlists.flush();
     history.flush();
