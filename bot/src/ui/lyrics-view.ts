@@ -89,12 +89,16 @@ export class LiveLyrics {
       if (reason === "trackStart") void this.switchTrack();
       if (reason === "destroy") void this.closeAll("Воспроизведение остановлено");
     });
+    music.on("quiet", (on) => {
+      if (on) void this.closeAll("Началась «Угадай трек» — текст откроешь после игры");
+    });
   }
 
   /** Открыть текст для нажавшего. Повторное открытие заменяет его прошлую сессию. */
   async open(i: LyricsInteraction) {
     const player = this.music.player;
     const track = player?.queue.current;
+    if (this.music.quietMode) throw new MusicError("Во время «Угадай трек» текст недоступен 😉");
     if (!player || !track) throw new MusicError("Сейчас ничего не играет.");
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const lyrics = await getLyrics(player, track);
@@ -175,7 +179,7 @@ export class LiveLyrics {
     for (const [userId, s] of this.sessions) {
       this.sessions.delete(userId);
       // Плеер уже уничтожен — показываем короткую заметку вместо текста.
-      if (!player?.queue.current) {
+      if (!player?.queue.current || this.music.quietMode) {
         await s.interaction.editReply({ components: [new ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${note}`))], flags: MessageFlags.IsComponentsV2 }).catch(() => undefined);
       }
     }

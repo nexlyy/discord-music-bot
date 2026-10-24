@@ -22,6 +22,7 @@ import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../u
 import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
 import { fromStored, withRequester } from "../library/stored-track.js";
 import type { WrappedPeriod } from "../wrapped/wrapped.js";
+import type { QuizMode } from "../quiz/drop.js";
 import { assertSameChannel, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
 import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
 
@@ -121,6 +122,15 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return openBrowse(i, ctx);
     case "like":
       return toggleLike(i, ctx);
+    case "quiz": {
+      const sub = i.options.getSubcommand();
+      if (sub === "start") return ctx.quiz.start(i, i.options.getString("режим", true) as QuizMode, i.options.getInteger("раунды") ?? 10);
+      if (sub === "stop") {
+        await ctx.quiz.stop(i);
+        return say(i, "⏹ Останавливаю игру — сейчас покажу итоги");
+      }
+      return ctx.quiz.top(i);
+    }
     case "cleanup": {
       await i.deferReply({ flags: MessageFlags.Ephemeral });
       const channel = i.channel;
@@ -391,6 +401,8 @@ async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
 async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, ctx: Ctx) {
   const { music, settings } = ctx;
   const id = i.customId;
+
+  if (id.startsWith("qz:") && i.isButton()) return ctx.quiz.handleButton(i);
 
   if (id.startsWith(QUEUE_PAGE_PREFIX)) {
     const page = Number(id.slice(QUEUE_PAGE_PREFIX.length).split(":")[0]) || 1;

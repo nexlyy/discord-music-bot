@@ -10,6 +10,8 @@ import { PlaylistStore } from "./library/playlists.js";
 import { toStored } from "./library/stored-track.js";
 import { VoiceStatus } from "./ui/voice-status.js";
 import { Wrapped } from "./wrapped/wrapped.js";
+import { QuizManager } from "./quiz/game.js";
+import { QuizStore } from "./quiz/store.js";
 import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
@@ -46,6 +48,7 @@ const finishPlay = () => {
 };
 music.lavalink.on("trackStart", (_player, track) => {
   finishPlay();
+  if (music.quietMode) return; // треки «Угадай трек» не попадают в историю и итоги
   const stored = track ? toStored(track) : null;
   const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
   if (stored && !track?.info.isStream) {
@@ -63,7 +66,9 @@ setInterval(() => {
   if (p?.queue.current && p.playing && !p.paused) history.addListeners(music.channelListeners(), 30);
 }, 30_000);
 
-const wrapped = new Wrapped(client, config, settings, history);
+const quizStore = new QuizStore(config.DATA_DIR);
+const wrapped = new Wrapped(client, config, settings, history, quizStore);
+const quiz = new QuizManager(client, music, history, settings, quizStore);
 const voiceStatus = new VoiceStatus(client, music, settings);
 
 const ctx: Ctx = {
@@ -71,6 +76,7 @@ const ctx: Ctx = {
   playlists,
   history,
   wrapped,
+  quiz,
   music,
   settings,
   playerMessage: new PlayerMessage(client, music, settings),
@@ -81,6 +87,10 @@ const ctx: Ctx = {
 client.on(Events.Raw, (packet) => void music.lavalink.sendRawData(packet));
 client.on(Events.InteractionCreate, (i) => void handleInteraction(i, ctx));
 client.on(Events.VoiceStateUpdate, (o, n) => void music.handleVoiceState(o, n).catch((e) => log.warn("voiceState:", e)));
+
+music.on("quiet", (on) => {
+  if (on) client.user?.setActivity("🎮 Угадай трек", { type: ActivityType.Custom });
+});
 
 // Статус бота: что играет сейчас.
 music.on("update", (reason) => {

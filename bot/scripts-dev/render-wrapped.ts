@@ -22,6 +22,7 @@ const png = await renderWrapped({
   ],
   topListener: { name: "syncae", avatar: null, hours: 41.6 },
   topDj: { name: "артур", avatar: null, plays: 180 },
+  quizChampion: { name: "syncae", avatar: null, points: 54300 },
 });
 writeFileSync(process.argv[2] ?? "wrapped.png", png);
 console.log("ok", png.length);

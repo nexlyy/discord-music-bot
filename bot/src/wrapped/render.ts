@@ -15,10 +15,11 @@ export interface WrappedData {
   topArtists: { name: string; plays: number }[];
   topListener: { name: string; avatar: string | null; hours: number } | null;
   topDj: { name: string; avatar: string | null; plays: number } | null;
+  quizChampion?: { name: string; avatar: string | null; points: number } | null;
 }
 
 const W = 1080;
-const H = 1680;
+const H = 1720;
 const PAD = 64;
 
 async function fetchImage(url: string | null): Promise<Image | null> {
@@ -96,11 +97,12 @@ export async function renderWrapped(d: WrappedData): Promise<Buffer> {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  const [hero, guildIcon, listenerAvatar, djAvatar, ...covers] = await Promise.all([
+  const [hero, guildIcon, listenerAvatar, djAvatar, quizAvatar, ...covers] = await Promise.all([
     fetchImage(d.topTracks[0]?.artworkUrl ?? null),
     fetchImage(d.guildIcon),
     fetchImage(d.topListener?.avatar ?? null),
     fetchImage(d.topDj?.avatar ?? null),
+    fetchImage(d.quizChampion?.avatar ?? null),
     ...d.topTracks.slice(0, 5).map((t) => fetchImage(t.artworkUrl)),
   ]);
 
@@ -228,30 +230,31 @@ export async function renderWrapped(d: WrappedData): Promise<Buffer> {
 
   // Люди
   y += 3 * 62 + 52;
-  const cardW = (W - PAD * 2 - 24) / 2;
+  const gapX = 20;
+  const cardW = (W - PAD * 2 - gapX * 2) / 3;
   const people: [string, { name: string; avatar: string | null } | null, Image | null, string][] = [
     ["Главный слушатель", d.topListener, listenerAvatar, d.topListener ? `${fmtInt(d.topListener.hours)} ч под музыку` : "нет данных"],
     ["Главный диджей", d.topDj, djAvatar, d.topDj ? `${fmtInt(d.topDj.plays)} заказов` : "нет данных"],
+    ["Лучший в угадайке", d.quizChampion ?? null, quizAvatar, d.quizChampion ? `${fmtInt(d.quizChampion.points)} очков` : "ещё не играли"],
   ];
   people.forEach(([label, person, img, detail], i) => {
-    const x = PAD + i * (cardW + 24);
-    roundRect(ctx, x, y, cardW, 150, 24);
+    const x = PAD + i * (cardW + gapX);
+    roundRect(ctx, x, y, cardW, 190, 24);
     ctx.fillStyle = "rgba(255,255,255,0.07)";
     ctx.fill();
-    drawAvatar(ctx, img, x + 26, y + 31, 88, d.accent);
-    const tx = x + 26 + 88 + 22;
-    const tw = cardW - (tx - x) - 20;
+    drawAvatar(ctx, img, x + 22, y + 24, 64, d.accent);
+    const tw = cardW - 44;
     ctx.fillStyle = d.accent;
-    ctx.font = font("Bold", 18);
+    ctx.font = font("Bold", 15);
     ctx.letterSpacing = "2px";
-    ctx.fillText(fit(ctx, label.toUpperCase(), tw), tx, y + 52);
+    ctx.fillText(fit(ctx, label.toUpperCase(), tw), x + 22, y + 118);
     ctx.letterSpacing = "0px";
     ctx.fillStyle = "#ffffff";
-    ctx.font = font("Bold", 30);
-    ctx.fillText(fit(ctx, person?.name ?? "—", tw), tx, y + 92);
+    ctx.font = font("Bold", 26);
+    ctx.fillText(fit(ctx, person?.name ?? "—", tw), x + 22, y + 152);
     ctx.fillStyle = "rgba(255,255,255,0.6)";
-    ctx.font = font("Medium", 22);
-    ctx.fillText(fit(ctx, detail, tw), tx, y + 124);
+    ctx.font = font("Medium", 19);
+    ctx.fillText(fit(ctx, detail, tw), x + 22, y + 178);
   });
 
   ctx.fillStyle = "rgba(255,255,255,0.35)";

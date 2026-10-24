@@ -80,6 +80,29 @@ export const commands = [
     .setName("247")
     .setDescription("Режим 24/7: бот не выходит из канала")
     .addBooleanOption((o) => o.setName("включить").setDescription("Без параметра — переключить")),
+  new SlashCommandBuilder()
+    .setName("quiz")
+    .setDescription("Угадай трек — музыкальная викторина")
+    .addSubcommand((s) =>
+      s
+        .setName("start")
+        .setDescription("Начать игру")
+        .addStringOption((o) =>
+          o
+            .setName("режим")
+            .setDescription("С какого места играет трек")
+            .setRequired(true)
+            .addChoices({ name: "Дроп — самый узнаваемый момент", value: "drop" }, { name: "С начала трека", value: "start" }),
+        )
+        .addIntegerOption((o) =>
+          o
+            .setName("раунды")
+            .setDescription("Сколько раундов (по умолчанию 10)")
+            .addChoices({ name: "5", value: 5 }, { name: "10", value: 10 }, { name: "15", value: 15 }, { name: "20", value: 20 }),
+        ),
+    )
+    .addSubcommand((s) => s.setName("stop").setDescription("Остановить игру"))
+    .addSubcommand((s) => s.setName("top").setDescription("Рейтинг игроков сервера за всё время")),
   new SlashCommandBuilder().setName("cleanup").setDescription("Удалить старые сообщения бота в этом канале (плеер и закреплённые останутся)"),
   new SlashCommandBuilder().setName("panel").setDescription("Как открыть веб-панель настроек"),
 ];

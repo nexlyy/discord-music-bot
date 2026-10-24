@@ -83,6 +83,8 @@ interface ServiceEvents {
   trackError: [message: string, track: Track | UnresolvedTrack | null];
   nodeDown: [node: LavalinkNode, reason: string];
   nodeUp: [node: LavalinkNode];
+  /** Тихий режим («Угадай трек»): включён/выключен */
+  quiet: [enabled: boolean];
 }
 
 export class MusicService extends EventEmitter<ServiceEvents> {
@@ -93,6 +95,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
   private trackNumber = 0;
+  /** Идёт «Угадай трек»: играющий трек скрыт, управление плеером заблокировано. */
+  quietMode = false;
   /** Вызывается перед тем, как бот сам выходит из канала (например, чтобы снять статус канала). */
   beforeLeave: ((channelId: string) => Promise<void>) | null = null;
   private shuffleOn = false;
@@ -135,7 +139,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
         onDisconnect: { autoReconnect: false, destroyPlayer: true },
         onEmptyQueue: {
           autoPlayFunction: async (player, lastTrack) => {
-            if (this.settings.get().autoplay && this.autoplayFn && lastTrack) {
+            if (!this.quietMode && this.settings.get().autoplay && this.autoplayFn && lastTrack) {
               await this.autoplayFn(player, lastTrack).catch((e) => log.warn("Автоплей не сработал:", e));
             }
           },
@@ -198,7 +202,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       repeatMode: p?.repeatMode ?? "off",
       autoplay: s.autoplay,
       stay247: s.stay247,
-      current: p?.queue.current ? toTrackView(p.queue.current) : null,
+      current: p?.queue.current && !this.quietMode ? toTrackView(p.queue.current) : null,
       queue: queue.map(toTrackView),
       queueDuration: queue.reduce((sum, t) => sum + (t.info.duration ?? 0), 0),
       previousCount: p?.queue.previous.length ?? 0,
@@ -305,7 +309,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     }
     if (this.shuffleOn) this.originalOrder.push(...toAdd);
 
-    if (idle) await player.play({ paused: false });
+    if (idle && !this.quietMode) await player.play({ paused: false });
     else this.emit("update", "queue");
     // SoundCloud: заранее качаем первые треки, чтобы старт был без паузы.
     for (const t of player.queue.tracks.slice(0, 2)) prefetch(t);
@@ -346,6 +350,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   }
 
   private requirePlayer(): Player {
+    if (this.quietMode) throw new MusicError("Сейчас идёт «Угадай трек». Дождись конца игры или останови её: /quiz stop");
     const p = this.player;
     if (!p) throw new MusicError("Сейчас ничего не играет.");
     return p;
@@ -584,6 +589,26 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     await p.destroy(reason);
   }
 
+  /** Включить тихий режим на время «Угадай трек». */
+  beginQuiet() {
+    this.quietMode = true;
+    this.cancelLeave();
+    this.emit("quiet", true);
+  }
+
+  /** Выключить тихий режим: интерфейс снова показывает текущий трек. */
+  endQuiet() {
+    this.quietMode = false;
+    this.emit("quiet", false);
+    this.emit("update", "trackStart");
+  }
+
+  /** После игры ничего не играет: показать пустой плеер и запустить таймер выхода, как после конца очереди. */
+  idleAfterQuiet() {
+    this.emit("update", "queue");
+    this.scheduleLeave("queue", this.settings.get().leaveOnQueueEndSec);
+  }
+
   /** Люди (не боты) в канале с ботом. */
   channelListeners(): string[] {
     const id = this.player?.voiceChannelId;
@@ -626,7 +651,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   /** Вызывается из voiceStateUpdate Discord. */
   async handleVoiceState(oldState: VoiceState, newState: VoiceState) {
     const p = this.player;
-    if (!p || newState.guild.id !== this.guildId) return;
+    if (!p || newState.guild.id !== this.guildId || this.quietMode) return;
     const botChannel = p.voiceChannelId;
     if (!botChannel) return;
     if (oldState.channelId !== botChannel && newState.channelId !== botChannel) return;
@@ -674,14 +699,18 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const lm = this.lavalink;
 
     lm.on("trackStart", (player) => {
+      if (this.quietMode) return;
       this.trackNumber++;
       prefetch(player.queue.tracks[0]);
       this.cancelLeave("queue");
       log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
       this.emit("update", "trackStart");
     });
-    lm.on("trackEnd", () => this.emit("update", "trackEnd"));
+    lm.on("trackEnd", () => {
+      if (!this.quietMode) this.emit("update", "trackEnd");
+    });
     lm.on("queueEnd", () => {
+      if (this.quietMode) return;
       this.emit("update", "queue");
       this.scheduleLeave("queue", this.settings.get().leaveOnQueueEndSec);
     });

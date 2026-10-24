@@ -32,7 +32,7 @@ function youtubeMix(videoId: string) {
 }
 
 /** Ищем похожие треки: сначала рекомендациями той же площадки, иначе миксом YouTube. */
-async function candidates(player: Player, last: Track): Promise<Track[]> {
+export async function similarTracks(player: Player, last: Track): Promise<Track[]> {
   const { sourceName, identifier, author, title } = last.info;
 
   switch (sourceName) {
@@ -74,7 +74,7 @@ export function createAutoplay() {
     const seenIds = new Set<string>([lastTrack, ...player.queue.previous].map((t) => t.info.identifier));
     const picked: Track[] = [];
 
-    for (const t of await candidates(player, lastTrack)) {
+    for (const t of await similarTracks(player, lastTrack)) {
       if (t.info.isStream) continue;
       if ((t.info.duration ?? 0) > 15 * 60_000) continue; // длинные миксы и стримы в автоплей не берём
       const key = trackKey(t);

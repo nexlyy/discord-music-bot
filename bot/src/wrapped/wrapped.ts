@@ -15,6 +15,7 @@ import { createLogger } from "../logger.js";
 import type { SettingsStore } from "../settings.js";
 import { JsonFile } from "../store.js";
 import { hexToInt } from "../ui/player-view.js";
+import type { QuizStore } from "../quiz/store.js";
 import { renderWrapped, type WrappedData } from "./render.js";
 
 const log = createLogger("wrapped");
@@ -50,6 +51,7 @@ export class Wrapped {
     private readonly config: Config,
     private readonly settings: SettingsStore,
     private readonly history: HistoryStore,
+    private readonly quiz: QuizStore,
   ) {
     this.state = new JsonFile(join(config.DATA_DIR, "wrapped-state.json"), () => ({ lastPosted: null }));
   }
@@ -75,7 +77,8 @@ export class Wrapped {
     const tracks = Object.values(stats.tracks).sort((a, b) => b.plays - a.plays);
     const [listenerId, listenerSec] = top(stats.listeners, 1)[0] ?? [];
     const [djId, djPlays] = top(stats.djs, 1)[0] ?? [];
-    const [listener, dj] = await Promise.all([this.person(listenerId), this.person(djId)]);
+    const champ = this.quiz.champion(key);
+    const [listener, dj, quizPerson] = await Promise.all([this.person(listenerId), this.person(djId), this.person(champ?.userId)]);
 
     const data: WrappedData = {
       title: label.title,
@@ -93,6 +96,7 @@ export class Wrapped {
       topArtists: top(stats.artists, 6).map(([name, plays]) => ({ name, plays })),
       topListener: listener && listenerSec ? { ...listener, hours: listenerSec / 3600 } : null,
       topDj: dj && djPlays ? { ...dj, plays: djPlays } : null,
+      quizChampion: quizPerson && champ ? { ...quizPerson, points: champ.points } : null,
     };
 
     const png = await renderWrapped(data);

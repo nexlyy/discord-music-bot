@@ -12,6 +12,7 @@ import { sourceInfo } from "../sources.js";
 import type { LiveLyrics } from "../ui/lyrics-view.js";
 import type { PlayerMessage } from "../ui/player-message.js";
 import type { Wrapped } from "../wrapped/wrapped.js";
+import type { QuizManager } from "../quiz/game.js";
 import type { TrackCache } from "./track-cache.js";
 
 const log = createLogger("commands");
@@ -21,6 +22,7 @@ export interface Ctx {
   playlists: PlaylistStore;
   history: HistoryStore;
   wrapped: Wrapped;
+  quiz: QuizManager;
   music: MusicService;
   settings: SettingsStore;
   playerMessage: PlayerMessage;

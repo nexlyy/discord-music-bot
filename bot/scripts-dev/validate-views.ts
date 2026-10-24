@@ -4,6 +4,7 @@ import { buildQueueMessage } from "../src/ui/queue-view.js";
 import { buildPlaylistsHome, buildPlaylistView, buildDeleteConfirm, buildAddToPlaylist } from "../src/ui/library-view.js";
 import { buildBrowseHome, buildTopView, buildRecentView, buildEffectsCard } from "../src/ui/browse-view.js";
 import { settingsSchema } from "../src/settings.js";
+import { lobbyView, roundView, revealView, finalView, topView, noticeView } from "../src/quiz/view.js";
 
 const settings = settingsSchema.parse({});
 const tv = (n: number) => ({ title: `Очень длинное название трека номер ${n} `.repeat(4), author: `Исполнитель ${n}`, uri: `https://youtu.be/${n}`, duration: 200000, isStream: false, artworkUrl: "https://i.scdn.co/image/x", sourceName: "spotify", requester: { id: "123456789012345678", username: "u", avatar: null }, playlistName: "xDD", playlistUrl: "https://open.spotify.com/playlist/1" });
@@ -28,6 +29,13 @@ const cases: Record<string, () => { components: { toJSON(): unknown }[] }> = {
   topEmpty: () => buildTopView("me", [], settings),
   recent: () => buildRecentView(Array.from({ length: 30 }, (_, i) => st(i)), settings),
   effects: () => buildEffectsCard({ bass: true, nightcore: false, vaporwave: false, rotation: true, karaoke: false, tremolo: false, lowPass: false }, settings),
+  quizLobby: () => lobbyView({ game: "abc123", accent: "#D4783A", mode: "drop", rounds: 10, voiceChannelId: "1", startsAt: Date.now() + 8000, hostId: "1" }),
+  quizRound: () => roundView({ game: "abc123", accent: "#D4783A", mode: "drop", round: 3, rounds: 10, endsAt: Date.now() + 10000, artists: ["Исполнитель с очень длинным именем ".repeat(4), "Кино", "Земфира", "The Weeknd"], titles: ["Группа крови", "Искала", "Blinding Lights", "Трек ".repeat(30)], answered: 2, listeners: 4, leaders: [{ userId: "1", points: 3400, artist: 3, title: 2 }] }),
+  quizRound2opts: () => roundView({ game: "abc123", accent: "#D4783A", mode: "start", round: 1, rounds: 5, endsAt: Date.now() + 10000, artists: ["A", "B"], titles: ["C", "D"], answered: 0, listeners: 1, leaders: [] }),
+  quizReveal: () => revealView({ game: "abc123", accent: "#D4783A", mode: "drop", round: 3, rounds: 10, artists: ["A", "B", "C", "D"], titles: ["E", "F", "G", "H"], leaders: [], artist: "Кино", title: "Группа крови", uri: "https://youtu.be/x", artworkUrl: "https://i.scdn.co/image/x", correctArtist: 1, correctTitle: 2, artistWinners: [{ userId: "1", points: 900 }], titleWinners: [], nextAt: Date.now() + 5000 }),
+  quizFinal: () => finalView({ accent: "#D4783A", mode: "drop", played: 10, leaders: Array.from({ length: 12 }, (_, i) => ({ userId: String(100000000000000000 + i), points: 9000 - i * 500, artist: 7, title: 5 })), stoppedBy: "1" }),
+  quizTop: () => topView("#D4783A", [["1", { points: 54000, games: 12, wins: 5, artist: 80, title: 70, rounds: 120 }]]),
+  quizNotice: () => noticeView("#D4783A", "Игра остановлена."),
 };
 let failed = 0;
 for (const [name, build] of Object.entries(cases)) {

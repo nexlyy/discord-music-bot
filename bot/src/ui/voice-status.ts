@@ -19,6 +19,7 @@ export class VoiceStatus {
     private readonly settings: SettingsStore,
   ) {
     music.on("update", () => this.schedule());
+    music.on("quiet", () => this.schedule());
     settings.on("change", (_s, patch) => {
       if ("voiceStatus" in patch) this.schedule();
     });
@@ -29,6 +30,7 @@ export class VoiceStatus {
   private desired(): { channelId: string; status: string | null } | null {
     const p = this.music.player;
     if (!p?.voiceChannelId) return null;
+    if (this.music.quietMode) return { channelId: p.voiceChannelId, status: this.settings.get().voiceStatus ? "🎮 Угадай трек" : null };
     const cur = p.queue.current;
     if (!cur || !this.settings.get().voiceStatus) return { channelId: p.voiceChannelId, status: null };
     const text = `${p.paused ? "⏸" : "🎵"} ${cur.info.author} — ${cur.info.title}`;

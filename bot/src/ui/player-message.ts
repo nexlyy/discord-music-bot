@@ -24,6 +24,10 @@ export class PlayerMessage {
   ) {
     music.on("update", (reason) => this.onUpdate(reason));
     client.on(Events.MessageCreate, (m) => this.onChannelMessage(m));
+    // «Угадай трек»: плеер выдал бы ответ — убираем его на время игры и возвращаем после.
+    music.on("quiet", (on) => {
+      if (on) this.enqueue(() => this.remove());
+    });
     settings.on("change", (_s, patch) => {
       if ("playerRefreshSec" in patch) this.restartTicker();
       if ("musicTextChannelId" in patch) this.resendNext = true;
@@ -97,6 +101,7 @@ export class PlayerMessage {
   }
 
   private async render(resend: boolean) {
+    if (this.music.quietMode) return;
     const player = this.music.player;
     if (!player) return;
     const channel = await this.channel();
