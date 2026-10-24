@@ -3,7 +3,6 @@ import { getLyrics } from "../music/lyrics.js";
 
 export type QuizMode = "start" | "drop";
 
-
 const normLine = (s: string) =>
   s
     .toLowerCase()
@@ -15,8 +14,8 @@ const normLine = (s: string) =>
  * С какого места играть фрагмент.
  * «Дроп» — первый припев: самая повторяющаяся строка синхронного текста. Нет текста (инструментал) —
  * примерно треть трека, где обычно начинается дроп.
+ * tailMs — сколько должно остаться после старта: раунд + показ ответа + запас (иначе трек кончится посреди раунда).
  */
-/** tailMs — сколько должно остаться после старта: раунд + показ ответа + запас (иначе трек кончится посреди раунда). */
 export async function startPosition(player: Player, track: Track, mode: QuizMode, tailMs: number): Promise<number> {
   const duration = track.info.duration ?? 0;
   if (mode === "start" || duration < tailMs + 15_000) return 0;
