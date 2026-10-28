@@ -8,7 +8,8 @@ const SOURCES = [
 const SOURCE_MANAGER = { ytm: "youtube", yt: "youtube", sc: "soundcloud", sp: "spotify", am: "applemusic", ym: "yandexmusic", vk: "vkmusic" };
 const SOURCE_LABEL = { youtube: "▶️ YouTube", soundcloud: "☁️ SoundCloud", spotify: "🟢 Spotify", applemusic: "🍎 Apple Music", yandexmusic: "🟡 Яндекс Музыка", vkmusic: "🔵 VK Музыка", http: "🔗 Ссылка", twitch: "🟪 Twitch", bandcamp: "🎸 Bandcamp" };
 
-const state = { player: null, settings: null, sources: [], guild: null, receivedAt: 0, es: null, settingsDirty: false };
+const state = { player: null, settings: null, sources: [], guild: null, receivedAt: 0, es: null, settingsDirty: false, bot: 0, bots: [] };
+const withBot = (path) => `${path}${path.includes("?") ? "&" : "?"}bot=${state.bot}`;
 
 /* ------------------------------ утилиты ------------------------------ */
 
@@ -52,7 +53,7 @@ async function api(path, opts = {}) {
 
 async function act(action, body = {}) {
   try {
-    const r = await api(`/api/player/${action}`, { method: "POST", body });
+    const r = await api(withBot(`/api/player/${action}`), { method: "POST", body });
     if (r.player) applyPlayer(r.player);
   } catch (e) {
     toast(e.message, true);
@@ -230,7 +231,6 @@ function fillGuildSelects() {
   $("#add-voice").innerHTML = `<option value="">Канал…</option>${voiceOpts}`;
   $('#settings-form [name="stay247ChannelId"]').innerHTML = `<option value="">— не выбран —</option>${voiceOpts}`;
   const textOpts = g.text.map((c) => `<option value="${c.id}"># ${esc(c.name)}</option>`).join("");
-  $('#settings-form [name="musicTextChannelId"]').innerHTML = `<option value="">Где вызвали команду</option>${textOpts}`;
   $('#settings-form [name="wrappedChannelId"]').innerHTML = `<option value="">Канал мини-плеера</option>${textOpts}`;
 }
 
@@ -259,7 +259,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".search-box")
 async function runSuggest(q) {
   const seq = ++suggestSeq;
   try {
-    const r = await api(`/api/search?${new URLSearchParams({ q, source: $("#add-source").value })}`);
+    const r = await api(withBot(`/api/search?${new URLSearchParams({ q, source: $("#add-source").value })}`));
     if (seq !== suggestSeq) return;
     suggestItems = r.tracks;
     suggestSel = -1;
@@ -290,7 +290,7 @@ $("#suggest").addEventListener("click", (e) => {
 async function addTrack(query) {
   const voiceChannelId = $("#add-voice").value || undefined;
   try {
-    const r = await api("/api/player/play", {
+    const r = await api(withBot("/api/player/play"), {
       method: "POST",
       body: { query, source: $("#add-source").value, next: $("#add-next").checked, voiceChannelId },
     });
@@ -429,11 +429,37 @@ setInterval(() => {
   if ($("#tab-logs").classList.contains("active") && $("#logs-auto").checked) loadLogs();
 }, 3000);
 
+/* ------------------------------ Артуры ------------------------------ */
+
+async function loadBots() {
+  try {
+    state.bots = await api("/api/bots");
+  } catch {
+    return;
+  }
+  const box = $("#bot-switch");
+  box.classList.toggle("hidden", state.bots.length < 2);
+  const channel = (id) => state.guild?.voice.find((c) => c.id === id)?.name;
+  box.innerHTML = state.bots
+    .map((b) => `<button data-bot="${b.index}" class="${b.index === state.bot ? "active" : ""}">${b.playing ? "🎶" : "🤖"} ${esc(b.name)}${b.voiceChannelId ? ` <span class="where">· 🔊 ${esc(channel(b.voiceChannelId) ?? "в войсе")}</span>` : ""}</button>`)
+    .join("");
+}
+$("#bot-switch").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-bot]");
+  if (!b) return;
+  state.bot = Number(b.dataset.bot);
+  await loadBots();
+  const st = await api(withBot("/api/state"));
+  applyPlayer(st.player);
+  connectEvents();
+});
+setInterval(loadBots, 10000);
+
 /* ------------------------------ запуск ------------------------------ */
 
 function connectEvents() {
   state.es?.close();
-  const es = new EventSource("/api/events");
+  const es = new EventSource(withBot("/api/events"));
   state.es = es;
   es.onopen = () => { $("#conn-dot").className = "dot ok"; $("#conn-text").textContent = "на связи"; };
   es.onmessage = (e) => {
@@ -459,7 +485,7 @@ async function start() {
   }
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
-  const [st, guild] = await Promise.all([api("/api/state"), api("/api/guild").catch(() => null)]);
+  const [st, guild] = await Promise.all([api(withBot("/api/state")), api("/api/guild").catch(() => null)]);
   state.settings = st.settings;
   state.sources = st.sources;
   state.guild = guild;
@@ -469,6 +495,7 @@ async function start() {
   fillSettings(true);
   applyPlayer(st.player);
   connectEvents();
+  await loadBots();
   const tab = location.hash.slice(1);
   if (tab) $(`#tabs button[data-tab="${tab}"]`)?.click();
 }

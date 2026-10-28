@@ -5,6 +5,11 @@ const emptyToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === 
 const schema = z.object({
   DISCORD_TOKEN: z.string().min(1, "DISCORD_TOKEN не задан"),
   DISCORD_GUILD_ID: z.string().regex(/^\d{17,20}$/, "DISCORD_GUILD_ID должен быть ID сервера"),
+  /** Токены дополнительных Артуров через запятую: каждый играет в своём голосовом канале */
+  DISCORD_HELPER_TOKENS: z.preprocess(
+    (v) => (typeof v === "string" ? v.split(",").map((t) => t.trim()).filter(Boolean) : []),
+    z.array(z.string()),
+  ),
   LAVALINK_HOST: z.string().default("lavalink"),
   LAVALINK_PORT: z.coerce.number().int().default(2333),
   LAVALINK_PASSWORD: z.string().min(1, "LAVALINK_PASSWORD не задан"),

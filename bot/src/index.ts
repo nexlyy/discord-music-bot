@@ -1,27 +1,27 @@
-import { ActivityType, Client, Events, GatewayIntentBits, type Guild } from "discord.js";
-import { commandsJson } from "./commands/definitions.js";
+import { ActivityType, Client, Events, GatewayIntentBits, type Guild, type GuildMember, type Interaction } from "discord.js";
 import type { Ctx } from "./commands/common.js";
+import { commandsJson } from "./commands/definitions.js";
 import { handleInteraction } from "./commands/handlers.js";
 import { TrackCache } from "./commands/track-cache.js";
 import { loadConfig } from "./config.js";
 import { LavalinkAdmin } from "./lavalink-admin.js";
 import { HistoryStore } from "./library/history.js";
-import { SessionKeeper } from "./music/session.js";
 import { PlaylistStore } from "./library/playlists.js";
 import { toStored } from "./library/stored-track.js";
-import { VoiceStatus } from "./ui/voice-status.js";
-import { Wrapped } from "./wrapped/wrapped.js";
-import { QuizManager } from "./quiz/game.js";
-import { QuizStore } from "./quiz/store.js";
 import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
 import { MusicService } from "./music/service.js";
+import { SessionKeeper } from "./music/session.js";
+import { QuizManager } from "./quiz/game.js";
+import { QuizStore } from "./quiz/store.js";
 import { SettingsStore } from "./settings.js";
+import { syncEmojis, withEmojiScope } from "./ui/emoji.js";
 import { LiveLyrics } from "./ui/lyrics-view.js";
-import { syncEmojis } from "./ui/emoji.js";
 import { PlayerMessage } from "./ui/player-message.js";
+import { VoiceStatus } from "./ui/voice-status.js";
 import { startPanel } from "./web/server.js";
+import { Wrapped } from "./wrapped/wrapped.js";
 
 const log = createLogger("main");
 const startedAt = Date.now();
@@ -29,82 +29,125 @@ const config = loadConfig();
 const settings = new SettingsStore(config.DATA_DIR);
 const alerts = new Alerts(config, settings);
 
-const client = new Client({
-  // GuildMessages нужен только чтобы знать, что в канале появилось сообщение (текст боту не нужен).
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
-});
-
-const music = new MusicService(client, config, settings);
-music.setAutoplay(createAutoplay());
-alerts.attach(music);
-
+// Общие для всех Артуров данные.
 const playlists = new PlaylistStore(config.DATA_DIR);
-
-// Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска.
-const sessions = new SessionKeeper(music, config.DATA_DIR);
-const pendingSession = sessions.takePending();
-if (pendingSession) music.onFirstReady = () => sessions.restore(pendingSession);
-sessions.start();
 const history = new HistoryStore(config.DATA_DIR);
-
-// История прослушиваний: для топов, «Недавних», радио и итогов месяца.
-let playing: { startedAt: number; duration: number } | null = null;
-const finishPlay = () => {
-  if (playing) history.addListenedMs(Math.min(Date.now() - playing.startedAt, playing.duration));
-  playing = null;
-};
-music.lavalink.on("trackStart", (_player, track) => {
-  finishPlay();
-  if (music.quietMode) return; // треки «Угадай трек» не попадают в историю и итоги
-  const stored = track ? toStored(track) : null;
-  const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
-  if (stored && !track?.info.isStream) {
-    history.add(requester, stored);
-    playing = { startedAt: Date.now(), duration: track!.info.duration };
-  }
-});
-music.lavalink.on("trackEnd", finishPlay);
-music.lavalink.on("queueEnd", finishPlay);
-music.lavalink.on("playerDestroy", finishPlay);
-
-// Кто сколько слушал: раз в 30 секунд начисляем время тем, кто в канале, пока музыка играет.
-setInterval(() => {
-  const p = music.player;
-  if (p?.queue.current && p.playing && !p.paused) history.addListeners(music.channelListeners(), 30);
-}, 30_000);
-
 const quizStore = new QuizStore(config.DATA_DIR);
-const wrapped = new Wrapped(client, config, settings, history, quizStore);
-const quiz = new QuizManager(client, music, history, settings, quizStore);
-const voiceStatus = new VoiceStatus(client, music, settings);
+const cache = new TrackCache();
 
-const ctx: Ctx = {
-  config,
-  playlists,
-  history,
-  wrapped,
-  quiz,
-  music,
-  settings,
-  playerMessage: new PlayerMessage(client, music, settings),
-  lyrics: new LiveLyrics(music, settings),
-  cache: new TrackCache(),
-};
+/**
+ * Discord пускает одного бота только в один голосовой канал сервера, поэтому для нескольких каналов —
+ * несколько ботов. Главный (index 0) держит слэш-команды и режим 24/7, помощники играют в других войсах.
+ */
+export interface BotInstance {
+  index: number;
+  client: Client;
+  music: MusicService;
+  playerMessage: PlayerMessage;
+  lyrics: LiveLyrics;
+  quiz: QuizManager;
+  voiceStatus: VoiceStatus;
+  sessions: SessionKeeper;
+}
 
-client.on(Events.Raw, (packet) => void music.lavalink.sendRawData(packet));
-client.on(Events.InteractionCreate, (i) => void handleInteraction(i, ctx));
-client.on(Events.VoiceStateUpdate, (o, n) => void music.handleVoiceState(o, n).catch((e) => log.warn("voiceState:", e)));
+const instances: BotInstance[] = [];
 
-music.on("quiet", (on) => {
-  if (on) client.user?.setActivity("🎮 Угадай трек", { type: ActivityType.Custom });
-});
+function createInstance(index: number): BotInstance {
+  const client = new Client({
+    // GuildMessages нужен только чтобы знать, что в канале появилось сообщение (текст боту не нужен).
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
+  });
+  const music = new MusicService(client, config, settings, index === 0);
+  music.setAutoplay(createAutoplay());
+  alerts.attach(music);
 
-// Статус бота: что играет сейчас.
-music.on("update", (reason) => {
-  if (!["trackStart", "destroy", "queue"].includes(reason)) return;
-  const cur = music.player?.queue.current;
-  client.user?.setActivity(cur ? `${cur.info.author} — ${cur.info.title}`.slice(0, 120) : "/play", { type: cur ? ActivityType.Listening : ActivityType.Custom });
-});
+  // Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска.
+  const sessions = new SessionKeeper(music, config.DATA_DIR, index === 0 ? "session.json" : `session-${index}.json`);
+  const pending = sessions.takePending();
+  if (pending) music.onFirstReady = () => sessions.restore(pending);
+  sessions.start();
+
+  // История прослушиваний: для топов, «Недавних», радио и итогов месяца.
+  let playing: { startedAt: number; duration: number } | null = null;
+  const finishPlay = () => {
+    if (playing) history.addListenedMs(Math.min(Date.now() - playing.startedAt, playing.duration));
+    playing = null;
+  };
+  music.lavalink.on("trackStart", (_player, track) => {
+    finishPlay();
+    if (music.quietMode) return; // треки «Угадай трек» не попадают в историю и итоги
+    const stored = track ? toStored(track) : null;
+    const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
+    if (stored && !track?.info.isStream) {
+      history.add(requester, stored);
+      playing = { startedAt: Date.now(), duration: track!.info.duration };
+    }
+  });
+  music.lavalink.on("trackEnd", finishPlay);
+  music.lavalink.on("queueEnd", finishPlay);
+  music.lavalink.on("playerDestroy", finishPlay);
+
+  const inst: BotInstance = {
+    index,
+    client,
+    music,
+    sessions,
+    playerMessage: new PlayerMessage(client, music, settings),
+    lyrics: new LiveLyrics(music, settings),
+    quiz: new QuizManager(client, music, history, settings, quizStore),
+    voiceStatus: new VoiceStatus(client, music, settings),
+  };
+
+  client.on(Events.Raw, (packet) => void music.lavalink.sendRawData(packet));
+  client.on(Events.InteractionCreate, (i) => void dispatch(i));
+  client.on(Events.VoiceStateUpdate, (o, n) => void music.handleVoiceState(o, n).catch((e) => log.warn("voiceState:", e)));
+
+  // Статус бота: что играет сейчас.
+  music.on("quiet", (on) => {
+    if (on) client.user?.setActivity("🎮 Угадай трек", { type: ActivityType.Custom });
+  });
+  music.on("update", (reason) => {
+    if (!["trackStart", "destroy", "queue"].includes(reason)) return;
+    const cur = music.player?.queue.current;
+    client.user?.setActivity(cur ? `${cur.info.author} — ${cur.info.title}`.slice(0, 120) : "/play", { type: cur ? ActivityType.Listening : ActivityType.Custom });
+  });
+
+  // Если бота убрали с сервера и добавили снова (например, ради новых прав), Discord удаляет его команды.
+  client.on(Events.GuildCreate, async (guild) => {
+    if (guild.id !== config.DISCORD_GUILD_ID) return;
+    log.info(`${client.user?.username}: снова на сервере`);
+    if (index === 0) await registerCommands(guild);
+    await music.ensureStay247();
+  });
+  client.on(Events.GuildDelete, (guild) => {
+    if (guild.id !== config.DISCORD_GUILD_ID) return;
+    log.warn(`${client.user?.username}: убрали с сервера`);
+    void alerts.send(`guild-removed-${index}`, "warn", `🟠 ${client.user?.username ?? "Бота"} убрали с сервера`, "Когда его добавят снова, всё подключится автоматически.", 0);
+  });
+
+  client.once(Events.ClientReady, async (c) => {
+    log.info(`Вошёл как ${c.user.tag}${index ? ` (помощник ${index})` : ""}`);
+    const guild = c.guilds.cache.get(config.DISCORD_GUILD_ID);
+    if (!guild) {
+      log.error(`${c.user.username} не состоит на сервере ${config.DISCORD_GUILD_ID}. Пригласи его по ссылке из README.`);
+    } else if (index === 0) {
+      await registerCommands(guild);
+    } else {
+      // У помощников своих команд нет: всё вызывается через главного Артура.
+      await guild.commands.set([]).catch(() => undefined);
+    }
+    await c.application.commands.set([]).catch(() => undefined);
+    c.user.setActivity("/play", { type: ActivityType.Custom });
+    await syncEmojis(c);
+    await music.init();
+    if (index === 0) {
+      wrapped.start();
+      void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**, помощников: ${instances.length - 1}.`, 60_000);
+    }
+  });
+
+  return inst;
+}
 
 async function registerCommands(guild: Guild) {
   await guild.commands.set(commandsJson).then(
@@ -113,37 +156,53 @@ async function registerCommands(guild: Guild) {
   );
 }
 
-// Если бота убрали с сервера и добавили снова (например, ради новых прав), Discord удаляет его команды —
-// регистрируем их заново сразу при возвращении.
-client.on(Events.GuildCreate, async (guild) => {
-  if (guild.id !== config.DISCORD_GUILD_ID) return;
-  log.info("Бот снова добавлен на сервер — регистрирую команды");
-  await registerCommands(guild);
-  await music.ensureStay247();
-});
-client.on(Events.GuildDelete, (guild) => {
-  if (guild.id !== config.DISCORD_GUILD_ID) return;
-  log.warn("Бота убрали с сервера");
-  void alerts.send("guild-removed", "warn", "🟠 Бота убрали с сервера", "Когда его добавят снова, команды зарегистрируются автоматически.", 0);
-});
+const tokens = [config.DISCORD_TOKEN, ...config.DISCORD_HELPER_TOKENS];
+tokens.forEach((_, index) => instances.push(createInstance(index)));
+const main = instances[0]!;
+const wrapped = new Wrapped(main.client, config, settings, history, quizStore);
 
-client.once(Events.ClientReady, async (c) => {
-  log.info(`Вошёл как ${c.user.tag}`);
-  const guild = c.guilds.cache.get(config.DISCORD_GUILD_ID);
-  if (!guild) {
-    log.error(`Бот не состоит на сервере ${config.DISCORD_GUILD_ID}. Пригласи его по ссылке из README.`);
-  } else {
-    await registerCommands(guild);
-    // Глобальные команды не используем — чистим, чтобы не было дублей.
-    await c.application.commands.set([]).catch(() => undefined);
+/**
+ * Какой Артур отвечает на действие. Кнопки помощника — сам помощник. Для команд главного: тот, кто уже
+ * играет в войсе пользователя, иначе первый свободный (главный, если не занят). 24/7 — только главный.
+ */
+function pickInstance(i: Interaction): BotInstance {
+  const own = instances.find((x) => x.client === i.client) ?? main;
+  if (own.index !== 0) return own;
+  if (i.isChatInputCommand() && i.commandName === "247") return main;
+  const voice = (i.member as GuildMember | null)?.voice?.channelId ?? null;
+  if (!voice) return main;
+  return instances.find((x) => x.music.player?.voiceChannelId === voice) ?? instances.find((x) => x.music.isFreeFor(voice)) ?? main;
+}
+
+function ctxFor(inst: BotInstance): Ctx {
+  return {
+    config,
+    settings,
+    playlists,
+    history,
+    wrapped,
+    cache,
+    music: inst.music,
+    quiz: inst.quiz,
+    playerMessage: inst.playerMessage,
+    lyrics: inst.lyrics,
+    instanceIndex: inst.index,
+  };
+}
+
+async function dispatch(i: Interaction) {
+  const inst = pickInstance(i);
+  // Отвечает тот бот, которому пришло взаимодействие, — значит, и иконки его.
+  await withEmojiScope(i.client.application?.id, () => handleInteraction(i, ctxFor(inst)));
+}
+
+// Кто сколько слушал: раз в 30 секунд начисляем время тем, кто в канале, пока музыка играет.
+setInterval(() => {
+  for (const { music } of instances) {
+    const p = music.player;
+    if (p?.queue.current && p.playing && !p.paused && !music.quietMode) history.addListeners(music.channelListeners(), 30);
   }
-  c.user.setActivity("/play", { type: ActivityType.Custom });
-  await syncEmojis(c);
-  await music.init();
-  wrapped.start();
-  void voiceStatus;
-  void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**.`, 60_000);
-});
+}, 30_000);
 
 process.on("unhandledRejection", (e) => {
   log.error("unhandledRejection:", e);
@@ -160,11 +219,11 @@ process.on("uncaughtException", (e) => {
 async function shutdown(signal: string) {
   log.info(`Получен ${signal}, выключаюсь`);
   try {
-    sessions.saveAndFreeze();
-    await ctx.lyrics.closeAll("Бот перезапускается — открой текст заново через минуту");
+    for (const inst of instances) inst.sessions.saveAndFreeze();
+    await Promise.all(instances.map((x) => x.lyrics.closeAll("Бот перезапускается — открой текст заново через минуту")));
     playlists.flush();
     history.flush();
-    await client.destroy();
+    await Promise.all(instances.map((x) => x.client.destroy()));
   } finally {
     process.exit(0);
   }
@@ -172,11 +231,23 @@ async function shutdown(signal: string) {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-await startPanel({ config, client, music, settings, admin: new LavalinkAdmin(config, music), alerts, startedAt });
-try {
-  await client.login(config.DISCORD_TOKEN);
-} catch (e) {
-  log.error("Не удалось войти в Discord. Проверь DISCORD_TOKEN в .env:", e);
-  await alerts.send("login", "error", "🔴 Бот не может войти в Discord", String(e), 60 * 60_000);
-  process.exit(1);
+await startPanel({
+  config,
+  client: main.client,
+  bots: instances.map((x) => ({ index: x.index, client: x.client, music: x.music })),
+  settings,
+  admin: new LavalinkAdmin(config, main.music),
+  alerts,
+  startedAt,
+});
+
+for (const [index, token] of tokens.entries()) {
+  try {
+    await instances[index]!.client.login(token);
+  } catch (e) {
+    const who = index === 0 ? "Главный бот" : `Помощник ${index}`;
+    log.error(`${who} не может войти в Discord. Проверь токен в .env:`, e);
+    await alerts.send(`login-${index}`, "error", `🔴 ${who} не может войти в Discord`, String(e), 60 * 60_000);
+    if (index === 0) process.exit(1);
+  }
 }

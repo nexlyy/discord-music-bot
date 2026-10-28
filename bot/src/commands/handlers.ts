@@ -92,11 +92,12 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     case "stop": {
       assertSameChannel(i, music);
       await music.stop();
-      return say(i, settings.get().stay247 ? "⏹ Остановлено, очередь очищена. Остаюсь в канале (24/7)." : "⏹ Остановлено, до встречи!");
+      return say(i, music.stay247 ? "⏹ Остановлено, очередь очищена. Остаюсь в канале (24/7)." : "⏹ Остановлено, до встречи!");
     }
     case "leave": {
       assertSameChannel(i, music);
-      const was247 = settings.get().stay247;
+      // 24/7 бывает только у главного Артура — выход помощника его не трогает.
+      const was247 = music.stay247;
       if (was247) settings.update({ stay247: false });
       await music.leave();
       return say(i, `👋 Вышел из канала${was247 ? ". Режим 24/7 выключен." : ""}`);
@@ -379,6 +380,7 @@ async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
       await music.changeVolume(settings.get().volumeStep);
       break;
     case OPTION_VALUES.stay247: {
+      if (ctx.instanceIndex !== 0) throw new MusicError("Режим 24/7 есть только у главного Артура.");
       if (settings.get().stay247) {
         settings.update({ stay247: false });
       } else {
@@ -477,7 +479,7 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
       await music.toggleShuffle();
       break;
     case PLAYER_IDS.leave:
-      if (settings.get().stay247) settings.update({ stay247: false });
+      if (music.stay247) settings.update({ stay247: false });
       await music.leave();
       break;
     case PLAYER_IDS.options:

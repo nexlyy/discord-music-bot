@@ -43,6 +43,7 @@
     <main>
       <!-- Плеер -->
       <section id="tab-player" class="tab active">
+        <div id="bot-switch" class="bot-switch hidden"></div>
         <div class="player-grid">
           <div class="card now">
             <div class="art-wrap"><img id="np-art" class="art" alt=""><div id="np-art-empty" class="art empty">🎵</div></div>
@@ -119,7 +120,7 @@
             <h2>Каналы и 24/7</h2>
             <label class="field switch"><span>Режим 24/7 — не выходить из канала</span><input name="stay247" type="checkbox"></label>
             <label class="field"><span>Голосовой канал для 24/7</span><select name="stay247ChannelId" data-kind="voice"></select></label>
-            <label class="field"><span>Канал для мини-плеера</span><select name="musicTextChannelId" data-kind="text"></select></label>
+            <p class="hint">Мини-плеер появляется в текстовом чате того голосового канала, где играет музыка.</p>
             <label class="field"><span>Выйти после конца очереди через, сек</span><input name="leaveOnQueueEndSec" type="number" min="0" max="3600"></label>
             <label class="field"><span>Выйти из пустого канала через, сек</span><input name="leaveOnEmptyChannelSec" type="number" min="0" max="3600"></label>
             <label class="field switch"><span>Пауза, когда все вышли из канала</span><input name="pauseOnEmptyChannel" type="checkbox"></label>

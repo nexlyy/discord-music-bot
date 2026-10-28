@@ -3,6 +3,7 @@ import { createLogger } from "../logger.js";
 import type { MusicService } from "../music/service.js";
 import type { UpdateReason } from "../music/types.js";
 import type { SettingsStore } from "../settings.js";
+import { withEmojiScope } from "./emoji.js";
 import { buildPlayerMessage } from "./player-view.js";
 
 const log = createLogger("player-msg");
@@ -94,7 +95,8 @@ export class PlayerMessage {
   }
 
   private async channel(): Promise<SendableChannels | null> {
-    const id = this.settings.get().musicTextChannelId ?? this.music.player?.textChannelId;
+    // Плеер живёт в текстовом чате того голосового канала, где играет музыка.
+    const id = this.music.player?.voiceChannelId;
     if (!id) return null;
     const ch = this.client.channels.cache.get(id) ?? (await this.client.channels.fetch(id).catch(() => null));
     return ch && ch.isSendable() ? ch : null;
@@ -107,7 +109,7 @@ export class PlayerMessage {
     const channel = await this.channel();
     if (!channel) return;
 
-    const payload = buildPlayerMessage(this.music.snapshot(), this.settings.get());
+    const payload = withEmojiScope(this.client.application?.id, () => buildPlayerMessage(this.music.snapshot(), this.settings.get()));
     const json = JSON.stringify(payload.components.map((c) => c.toJSON()));
 
     if (this.message && this.message.channelId !== channel.id) resend = true;

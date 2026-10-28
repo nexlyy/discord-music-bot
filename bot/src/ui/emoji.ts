@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Client } from "discord.js";
@@ -42,20 +43,37 @@ type Emoji = { id: string; name: string };
 
 // Версия в префиксе: если поменять картинки, новые загрузятся под другими именами.
 const PREFIX = "mb1_";
-const registry = new Map<IconKey, Emoji>();
+
+/**
+ * Эмодзи приложения может использовать только само приложение, поэтому у каждого Артура свой набор.
+ * Чей набор брать, определяет контекст: сообщения отправляет конкретный бот — рендер идёт внутри его области.
+ */
+const registries = new Map<string, Map<IconKey, Emoji>>();
+const scope = new AsyncLocalStorage<string>();
+
+export function withEmojiScope<T>(appId: string | undefined, fn: () => T): T {
+  return appId ? scope.run(appId, fn) : fn();
+}
+
+function current(): Map<IconKey, Emoji> | undefined {
+  const id = scope.getStore();
+  return id ? registries.get(id) : undefined;
+}
 
 /** Для setEmoji() кнопок и пунктов меню. */
 export function icon(key: IconKey): Emoji | string {
-  return registry.get(key) ?? FALLBACK[key];
+  return current()?.get(key) ?? FALLBACK[key];
 }
 
 /** Для текста сообщений. */
 export function iconText(key: IconKey): string {
-  const e = registry.get(key);
+  const e = current()?.get(key);
   return e ? `<:${e.name}:${e.id}>` : FALLBACK[key];
 }
 
 export async function syncEmojis(client: Client<true>) {
+  const registry = new Map<IconKey, Emoji>();
+  registries.set(client.application.id, registry);
   const dir = fileURLToPath(new URL("../../assets/icons/", import.meta.url));
   let existing;
   try {

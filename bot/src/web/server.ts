@@ -18,10 +18,17 @@ const log = createLogger("panel");
 const COOKIE = "mb_session";
 const SESSION_DAYS = 30;
 
+interface PanelBot {
+  index: number;
+  client: Client;
+  music: MusicService;
+}
+
 interface Deps {
   config: Config;
   client: Client;
-  music: MusicService;
+  /** Все Артуры: панель управляет выбранным (?bot=N), по умолчанию главным */
+  bots: PanelBot[];
   settings: SettingsStore;
   admin: LavalinkAdmin;
   alerts: Alerts;
@@ -29,7 +36,14 @@ interface Deps {
 }
 
 export async function startPanel(deps: Deps) {
-  const { config, client, music, settings, admin, alerts } = deps;
+  const { config, client, bots, settings, admin, alerts } = deps;
+  const main = bots[0]!.music;
+  const botFor = (req: FastifyRequest) => {
+    const q = req.query as { bot?: string } | undefined;
+    const b = req.body as { bot?: number } | undefined;
+    const idx = Number(q?.bot ?? b?.bot ?? 0);
+    return bots[idx] ?? bots[0]!;
+  };
   const key = createHash("sha256").update(`panel:${config.PANEL_PASSWORD}`).digest();
   const sign = (value: string) => createHmac("sha256", key).update(value).digest("base64url");
 
@@ -94,11 +108,21 @@ export async function startPanel(deps: Deps) {
 
   app.get("/api/session", async () => ({ ok: true }));
 
-  app.get("/api/state", async () => ({
-    player: music.snapshot(),
-    settings: settings.get(),
-    sources: [...music.availableManagers()],
-  }));
+  app.get("/api/state", async (req) => {
+    const music = botFor(req).music;
+    return { player: music.snapshot(), settings: settings.get(), sources: [...music.availableManagers()] };
+  });
+
+  /** Список Артуров для переключателя в панели. */
+  app.get("/api/bots", async () =>
+    bots.map((b) => ({
+      index: b.index,
+      name: b.client.user?.username ?? (b.index ? `Помощник ${b.index}` : "Главный"),
+      online: b.client.isReady(),
+      voiceChannelId: b.music.player?.voiceChannelId ?? null,
+      playing: Boolean(b.music.player?.queue.current),
+    })),
+  );
 
   app.get("/api/guild", async () => {
     const g = guild();
@@ -141,8 +165,8 @@ export async function startPanel(deps: Deps) {
     const patch = settingsPatchSchema.parse(req.body);
     const next = settings.update(patch);
     if ("stay247" in patch || "stay247ChannelId" in patch) {
-      if (next.stay247) await music.ensureStay247();
-      music.emit("update", "settings");
+      if (next.stay247) await main.ensureStay247();
+      main.emit("update", "settings");
     }
     return next;
   });
@@ -150,8 +174,8 @@ export async function startPanel(deps: Deps) {
   /* ------------------------------ плеер ------------------------------ */
 
   app.get("/api/search", async (req) => {
-    const q = z.object({ q: z.string().min(1).max(300), source: z.string().optional() }).parse(req.query);
-    const res = await music.search(q.q, isSearchSourceKey(q.source) ? q.source : undefined, PANEL_REQUESTER);
+    const q = z.object({ q: z.string().min(1).max(300), source: z.string().optional(), bot: z.string().optional() }).parse(req.query);
+    const res = await botFor(req).music.search(q.q, isSearchSourceKey(q.source) ? q.source : undefined, PANEL_REQUESTER);
     return {
       loadType: res.loadType,
       playlist: res.playlist?.name ?? null,
@@ -169,45 +193,47 @@ export async function startPanel(deps: Deps) {
 
   app.post("/api/player/play", async (req) => {
     const body = z
-      .object({ query: z.string().min(1).max(500), source: z.string().optional(), next: z.boolean().optional(), voiceChannelId: z.string().optional() })
+      .object({ query: z.string().min(1).max(500), source: z.string().optional(), next: z.boolean().optional(), voiceChannelId: z.string().optional(), bot: z.number().optional() })
       .parse(req.body);
     const s = settings.get();
-    const voice = music.player?.voiceChannelId ?? body.voiceChannelId ?? s.stay247ChannelId;
+    const music = botFor(req).music;
+    const voice = music.player?.voiceChannelId ?? body.voiceChannelId ?? (music === main ? s.stay247ChannelId : null);
     if (!voice) throw new MusicError("Бот не в голосовом канале. Выбери канал в форме добавления.");
     const result = await music.play({
       query: body.query,
       source: isSearchSourceKey(body.source) ? body.source : undefined,
       voiceChannelId: voice,
-      textChannelId: s.musicTextChannelId ?? music.player?.textChannelId ?? null,
+      textChannelId: voice,
       requester: PANEL_REQUESTER,
       next: body.next,
     });
     return { added: result.added.length, playlist: result.playlistName, startedNow: result.startedNow, skipped: result.skipped };
   });
 
-  const actions: Record<string, (body: Record<string, unknown>) => Promise<unknown>> = {
-    toggle: () => music.togglePause(),
-    pause: () => music.setPaused(true),
-    resume: () => music.setPaused(false),
-    skip: () => music.skip(),
-    previous: () => music.previous(),
-    stop: () => music.stop(),
-    leave: () => music.leave(),
-    shuffle: () => music.toggleShuffle(),
-    clear: () => music.clear(),
-    repeat: (b) => music.setRepeat(z.enum(["off", "queue", "track"]).parse(b.mode)),
-    volume: (b) => music.setVolume(z.number().parse(b.value)),
-    seek: (b) => music.seek(z.number().min(0).parse(b.ms)),
-    jump: (b) => music.jump(z.number().int().min(1).parse(b.index)),
-    remove: (b) => music.remove(z.number().int().min(1).parse(b.index)),
-    move: (b) => music.move(z.number().int().min(1).parse(b.from), z.number().int().min(1).parse(b.to)),
-    autoplay: async (b) => music.setAutoplayEnabled(z.boolean().parse(b.enabled)),
+  const actions: Record<string, (body: Record<string, unknown>, music: MusicService) => Promise<unknown>> = {
+    toggle: (_b, music) => music.togglePause(),
+    pause: (_b, music) => music.setPaused(true),
+    resume: (_b, music) => music.setPaused(false),
+    skip: (_b, music) => music.skip(),
+    previous: (_b, music) => music.previous(),
+    stop: (_b, music) => music.stop(),
+    leave: (_b, music) => music.leave(),
+    shuffle: (_b, music) => music.toggleShuffle(),
+    clear: (_b, music) => music.clear(),
+    repeat: (b, music) => music.setRepeat(z.enum(["off", "queue", "track"]).parse(b.mode)),
+    volume: (b, music) => music.setVolume(z.number().parse(b.value)),
+    seek: (b, music) => music.seek(z.number().min(0).parse(b.ms)),
+    jump: (b, music) => music.jump(z.number().int().min(1).parse(b.index)),
+    remove: (b, music) => music.remove(z.number().int().min(1).parse(b.index)),
+    move: (b, music) => music.move(z.number().int().min(1).parse(b.from), z.number().int().min(1).parse(b.to)),
+    autoplay: async (b, music) => music.setAutoplayEnabled(z.boolean().parse(b.enabled)),
   };
 
   app.post<{ Params: { action: string } }>("/api/player/:action", async (req) => {
     const fn = actions[req.params.action];
     if (!fn) throw new MusicError("Неизвестное действие");
-    await fn((req.body as Record<string, unknown>) ?? {});
+    const music = botFor(req).music;
+    await fn((req.body as Record<string, unknown>) ?? {}, music);
     return { ok: true, player: music.snapshot() };
   });
 
@@ -222,6 +248,7 @@ export async function startPanel(deps: Deps) {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
+    const music = botFor(req).music;
     let pending: NodeJS.Timeout | null = null;
     const push = () => {
       pending = null;

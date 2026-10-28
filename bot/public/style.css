@@ -77,6 +77,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; }
 .tab.active { display: block; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
 
+/* Переключатель Артуров */
+.bot-switch { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.bot-switch button { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.bot-switch button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.bot-switch .where { font-weight: 500; color: var(--muted); }
+
 /* Плеер */
 .player-grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
 .col { display: grid; gap: 20px; min-width: 0; }

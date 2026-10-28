@@ -402,7 +402,8 @@ export class QuizManager {
     if (!this.music.ready) throw new MusicError("Аудиосервер ещё запускается, попробуй через несколько секунд.");
     await i.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const channelId = this.settings.get().musicTextChannelId ?? i.channelId;
+    // Игра идёт в текстовом чате того голосового канала, где играют.
+    const channelId = voice;
     const channel = await this.client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isSendable()) throw new MusicError("Не могу писать в канал для игры.");
 

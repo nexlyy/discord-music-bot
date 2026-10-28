@@ -56,8 +56,9 @@ export class SessionKeeper {
   constructor(
     private readonly music: MusicService,
     dataDir: string,
+    fileName = "session.json",
   ) {
-    this.path = join(dataDir, "session.json");
+    this.path = join(dataDir, fileName);
     this.file = new JsonFile<SavedSession | null>(this.path, () => null);
   }
 

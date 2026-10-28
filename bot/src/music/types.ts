@@ -46,6 +46,8 @@ export interface PlayerSnapshot {
   repeatMode: RepeatMode;
   autoplay: boolean;
   stay247: boolean;
+  /** Этот Артур умеет 24/7 (только главный) */
+  canStay247: boolean;
   current: TrackView | null;
   queue: TrackView[];
   queueDuration: number;

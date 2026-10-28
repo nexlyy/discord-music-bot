@@ -108,6 +108,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     private readonly client: Client,
     config: Config,
     private readonly settings: SettingsStore,
+    /** Только главный Артур держит режим 24/7, помощники уходят, когда музыка кончилась. */
+    private readonly allow247 = true,
   ) {
     super();
     this.guildId = config.DISCORD_GUILD_ID;
@@ -203,7 +205,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       volume: p?.volume ?? s.defaultVolume,
       repeatMode: p?.repeatMode ?? "off",
       autoplay: s.autoplay,
-      stay247: s.stay247,
+      stay247: this.stay247,
+      canStay247: this.allow247,
       current: p?.queue.current && !this.quietMode ? toTrackView(p.queue.current) : null,
       queue: queue.map(toTrackView),
       queueDuration: queue.reduce((sum, t) => sum + (t.info.duration ?? 0), 0),
@@ -336,14 +339,14 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       player = this.lavalink.createPlayer({
         guildId: this.guildId,
         voiceChannelId,
-        textChannelId: s.musicTextChannelId ?? textChannelId ?? undefined,
+        textChannelId: voiceChannelId,
         selfDeaf: true,
         selfMute: false,
         volume: s.defaultVolume,
         instaUpdateFiltersFix: true,
       });
-    } else if (textChannelId && !s.musicTextChannelId) {
-      player.textChannelId = textChannelId;
+    } else {
+      player.textChannelId = voiceChannelId;
     }
 
     if (!player.connected) await player.connect();
@@ -407,7 +410,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   /** Остановить и очистить очередь. Бот выходит из канала, если не включён 24/7. */
   async stop(): Promise<void> {
     const p = this.requirePlayer();
-    if (this.settings.get().stay247) {
+    if (this.stay247) {
       await p.stopPlaying(true, false);
       await p.queue.splice(0, p.queue.tracks.length);
       this.emit("update", "queue");
@@ -611,6 +614,19 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     this.scheduleLeave("queue", this.settings.get().leaveOnQueueEndSec);
   }
 
+  get stay247(): boolean {
+    return this.allow247 && this.settings.get().stay247;
+  }
+
+  /** Бот может взять новый войс: не в канале или в канале никого и ничего не играет (24/7 держит главного на месте). */
+  isFreeFor(voiceChannelId: string): boolean {
+    if (!this.ready || !this.client.guilds.cache.has(this.guildId) || this.quietMode) return false;
+    const p = this.player;
+    if (!p?.voiceChannelId || p.voiceChannelId === voiceChannelId) return true;
+    if (this.stay247) return false;
+    return !p.queue.current && this.channelListeners().length === 0;
+  }
+
   /** Люди (не боты) в канале с ботом. */
   channelListeners(): string[] {
     const id = this.player?.voiceChannelId;
@@ -628,7 +644,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   }
 
   private scheduleLeave(reason: "queue" | "empty", seconds: number) {
-    if (this.settings.get().stay247) return;
+    if (this.stay247) return;
     this.cancelLeave();
     this.leaveReason = reason;
     this.leaveTimer = setTimeout(() => {
@@ -680,14 +696,14 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   /** 24/7: зайти в сохранённый канал после старта/перезапуска. */
   async ensureStay247() {
     const s = this.settings.get();
-    if (!s.stay247 || !s.stay247ChannelId || !this.ready) return;
+    if (!this.allow247 || !s.stay247 || !s.stay247ChannelId || !this.ready) return;
     // Бота убрали с сервера — зайти некуда; вернёмся по событию GuildCreate.
     if (!this.client.guilds.cache.has(this.guildId)) return;
     const p = this.player;
     if (p?.connected && p.voiceChannelId === s.stay247ChannelId) return;
     if (p?.queue.current) return; // не дёргаем играющий плеер
     try {
-      await this.ensurePlayer(s.stay247ChannelId, s.musicTextChannelId);
+      await this.ensurePlayer(s.stay247ChannelId, s.stay247ChannelId);
       log.info("24/7: подключился к каналу", s.stay247ChannelId);
       this.emit("update", "connect");
     } catch (e) {
@@ -735,7 +751,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       this.originalOrder = [];
       this.emit("update", "destroy");
       // В режиме 24/7 возвращаемся в канал (если нас не выгнали вручную — тогда канал сменится через настройки).
-      if (this.settings.get().stay247) setTimeout(() => void this.ensureStay247(), 3_000);
+      if (this.stay247) setTimeout(() => void this.ensureStay247(), 3_000);
     });
     lm.on("playerMove", (_player, _old, newChannel) => {
       log.info("Плеер перемещён в канал", newChannel);

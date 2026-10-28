@@ -23,6 +23,8 @@ export interface Ctx {
   history: HistoryStore;
   wrapped: Wrapped;
   quiz: QuizManager;
+  /** Какой Артур обслуживает действие: 0 — главный, 1+ — помощники */
+  instanceIndex: number;
   music: MusicService;
   settings: SettingsStore;
   playerMessage: PlayerMessage;

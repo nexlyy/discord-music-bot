@@ -98,7 +98,7 @@ function optionsMenu(snap: PlayerSnapshot, settings: Settings) {
       { label: "Автоплей", value: OPTION_VALUES.autoplay, description: `Похожие треки после очереди. ${onOff(snap.autoplay)}`, emoji: icon("autoplay") },
       { label: `Тише (−${settings.volumeStep}%)`, value: OPTION_VALUES.volDown, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("voldown") },
       { label: `Громче (+${settings.volumeStep}%)`, value: OPTION_VALUES.volUp, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("volup") },
-      { label: "Режим 24/7", value: OPTION_VALUES.stay247, description: `Не выходить из канала. ${onOff(snap.stay247)}`, emoji: icon("moon") },
+      ...(snap.canStay247 ? [{ label: "Режим 24/7", value: OPTION_VALUES.stay247, description: `Не выходить из канала. ${onOff(snap.stay247)}`, emoji: icon("moon") }] : []),
       { label: "Очистить очередь", value: OPTION_VALUES.clear, description: `В очереди: ${snap.queue.length}`, emoji: icon("clear") },
       { label: "Остановить", value: OPTION_VALUES.stop, description: snap.stay247 ? "Очистить очередь, остаться в канале" : "Очистить очередь и выйти", emoji: icon("stop") },
     );
@@ -122,6 +122,7 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
         [
+          snap.voiceChannelId ? `-# 🔊 <#${snap.voiceChannelId}>` : "",
           "### Очередь пуста",
           snap.autoplay ? "Автоплей включён, но похожих треков не нашлось." : "Добавь трек кнопкой ниже или командой `/play`.",
           snap.stay247 ? "-# Режим 24/7: бот останется в канале." : `-# Бот выйдет из канала через ${settings.leaveOnQueueEndSec} с, если ничего не добавить.`,
@@ -147,7 +148,8 @@ export function buildPlayerMessage(snap: PlayerSnapshot, settings: Settings) {
     : cur.uri
       ? `[${src.label}](${cur.uri})`
       : src.label;
-  const head = [`\`${String(snap.trackNumber || 1).padStart(2, "0")}\``, requesterLabel(cur.requester), from].filter(Boolean).join(" · ");
+  const where = snap.voiceChannelId ? `🔊 <#${snap.voiceChannelId}>` : null;
+  const head = [where, `\`${String(snap.trackNumber || 1).padStart(2, "0")}\``, requesterLabel(cur.requester), from].filter(Boolean).join(" · ");
   container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${head}`));
 
   if (cur.artworkUrl) {
@@ -201,7 +203,7 @@ export function buildSettingsCard(snap: PlayerSnapshot, settings: Settings) {
     `Громкость: **${snap.volume}%** (максимум ${settings.maxVolume}%)`,
     `Повтор: **${repeat}**`,
     `Автоплей: **${snap.autoplay ? "включён" : "выключен"}**`,
-    `Режим 24/7: **${snap.stay247 ? "включён" : "выключен"}**`,
+    snap.canStay247 ? `Режим 24/7: **${snap.stay247 ? "включён" : "выключен"}**` : "Режим 24/7: только у главного Артура",
     `Поиск по умолчанию: **${isSearchSourceKey(settings.defaultSource) ? SEARCH_SOURCES[settings.defaultSource].label : settings.defaultSource}**`,
     "",
     "-# Остальное (каналы, лимиты, цвет плеера, мониторинг) — в веб-панели, команда `/panel` подскажет, как её открыть.",
