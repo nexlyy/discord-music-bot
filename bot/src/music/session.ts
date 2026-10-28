@@ -5,7 +5,8 @@ import { fromStored, toStored, type StoredTrack } from "../library/stored-track.
 import { createLogger } from "../logger.js";
 import { JsonFile } from "../store.js";
 import { playlistMeta } from "./playlist-meta.js";
-import type { MusicService } from "./service.js";
+import type { PlayerMessage } from "../ui/player-message.js";
+import type { EffectKey, MusicService } from "./service.js";
 import { requesterOf, type Requester } from "./types.js";
 
 const log = createLogger("session");
@@ -27,6 +28,10 @@ export interface SavedSession {
   volume: number;
   repeatMode: RepeatMode;
   autoplay?: boolean;
+  shuffle?: boolean;
+  effects?: EffectKey[];
+  /** Сообщение плеера — после перезапуска редактируем его, а не шлём новое */
+  message?: { channelId: string; messageId: string } | null;
   queue: SavedEntry[];
   savedAt: number;
 }
@@ -58,6 +63,7 @@ export class SessionKeeper {
     private readonly music: MusicService,
     dataDir: string,
     fileName = "session.json",
+    private readonly playerMessage: PlayerMessage | null = null,
   ) {
     this.path = join(dataDir, fileName);
     this.file = new JsonFile<SavedSession | null>(this.path, () => null);
@@ -73,19 +79,29 @@ export class SessionKeeper {
   save() {
     if (this.frozen) return;
     const p = this.music.player;
-    // Во время «Угадай трек» состояние хранит сама игра — файл не трогаем.
-    if (this.music.quietMode) return;
-    if (!p?.voiceChannelId || (!p.queue.current && p.queue.tracks.length === 0)) return this.clear();
+    if (!p?.voiceChannelId) return this.clear();
+    // Во время «Угадай трек» сохраняем то, что играло до игры: после перезапуска вернётся музыка.
+    const backup = this.music.quietMode ? this.music.quietBackup : null;
+    if (this.music.quietMode && !backup) return;
+    const current = backup ? backup.current : p.queue.current;
+    const queue = backup ? backup.queue : p.queue.tracks;
+    if (!current && queue.length === 0) return this.clear();
+    const effects = Object.entries(this.music.effectsState())
+      .filter(([, on]) => on)
+      .map(([k]) => k as EffectKey);
     const session: SavedSession = {
       voiceChannelId: p.voiceChannelId,
       textChannelId: p.textChannelId,
-      current: p.queue.current ? toEntry(p.queue.current) : null,
-      position: p.position,
-      paused: p.paused,
+      current: current ? toEntry(current) : null,
+      position: backup ? backup.position : p.position,
+      paused: backup ? backup.paused : p.paused,
       volume: p.volume,
-      repeatMode: p.repeatMode,
+      repeatMode: backup ? backup.repeat : p.repeatMode,
       autoplay: this.music.autoplayEnabled,
-      queue: p.queue.tracks.map(toEntry).filter((e): e is SavedEntry => e !== null),
+      shuffle: this.music.shuffleEnabled,
+      effects: backup ? [] : effects,
+      message: this.playerMessage?.ref() ?? null,
+      queue: queue.map(toEntry).filter((e): e is SavedEntry => e !== null),
       savedAt: Date.now(),
     };
     try {
@@ -126,6 +142,9 @@ export class SessionKeeper {
       return t;
     };
     try {
+      // Сначала подхватываем старое сообщение плеера, чтобы не появилось второе.
+      if (s.message) await this.playerMessage?.adopt(s.message);
+      else await this.playerMessage?.adoptLatest(s.voiceChannelId);
       const player = await this.music.ensurePlayer(s.voiceChannelId, s.textChannelId);
       await player.setVolume(s.volume);
       if (s.repeatMode !== "off") await player.setRepeatMode(s.repeatMode);
@@ -133,6 +152,10 @@ export class SessionKeeper {
       if (s.queue.length) await player.queue.add(s.queue.map(build));
       if (s.current) await player.play({ clientTrack: build(s.current), position: s.position, paused: s.paused });
       else if (player.queue.tracks.length) await player.play({ paused: false });
+      if (s.shuffle) this.music.restoreShuffleFlag();
+      for (const fx of s.effects ?? []) await this.music.toggleEffect(fx).catch(() => undefined);
+      // Пока бот перезапускался, все могли выйти — тогда пауза и обычный таймер выхода.
+      await this.music.reevaluateChannel();
       log.info(`Сессия восстановлена: ${s.current ? `${s.current.track.info.author} — ${s.current.track.info.title}` : "очередь"}, в очереди ${s.queue.length}`);
     } catch (e) {
       log.warn("Не удалось восстановить сессию:", e);

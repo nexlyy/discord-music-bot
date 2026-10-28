@@ -61,8 +61,9 @@ function createInstance(index: number): BotInstance {
   music.setAutoplay(createAutoplay());
   alerts.attach(music);
 
-  // Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска.
-  const sessions = new SessionKeeper(music, config.DATA_DIR, index === 0 ? "session.json" : `session-${index}.json`);
+  // Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска, в том же сообщении плеера.
+  const playerMessage = new PlayerMessage(client, music, settings);
+  const sessions = new SessionKeeper(music, config.DATA_DIR, index === 0 ? "session.json" : `session-${index}.json`, playerMessage);
   const pending = sessions.takePending();
   if (pending) music.onFirstReady = () => sessions.restore(pending);
   sessions.start();
@@ -92,7 +93,7 @@ function createInstance(index: number): BotInstance {
     client,
     music,
     sessions,
-    playerMessage: new PlayerMessage(client, music, settings),
+    playerMessage,
     lyrics: new LiveLyrics(music, settings),
     quiz: new QuizManager(client, music, history, settings, quizStore),
     voiceStatus: new VoiceStatus(client, music, settings),

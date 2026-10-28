@@ -99,6 +99,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   onFirstReady: (() => Promise<void>) | null = null;
   /** Идёт «Угадай трек»: играющий трек скрыт, управление плеером заблокировано. */
   quietMode = false;
+  /** Что играло до «Угадай трек» — чтобы восстановить музыку, если бота перезапустят посреди игры. */
+  quietBackup: { current: Track | null; position: number; paused: boolean; queue: (Track | UnresolvedTrack)[]; repeat: RepeatMode } | null = null;
   /** Вызывается перед тем, как бот сам выходит из канала (например, чтобы снять статус канала). */
   beforeLeave: ((channelId: string) => Promise<void>) | null = null;
   private shuffleOn = false;
@@ -430,6 +432,14 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     return this.shuffleOn;
   }
 
+  /** После перезапуска: вернуть режим перемешивания без повторного перемешивания очереди. */
+  restoreShuffleFlag() {
+    const p = this.player;
+    if (!p) return;
+    this.shuffleOn = true;
+    this.originalOrder = [...p.queue.tracks];
+  }
+
   /**
    * Режим перемешивания, как в Spotify: при включении очередь перемешивается, новые треки встают
    * в случайные места; при выключении возвращается исходный порядок.
@@ -610,6 +620,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   /** Выключить тихий режим: интерфейс снова показывает текущий трек. */
   endQuiet() {
     this.quietMode = false;
+    this.quietBackup = null;
     this.emit("quiet", false);
     this.emit("update", "trackStart");
   }
@@ -679,7 +690,14 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const botChannel = p.voiceChannelId;
     if (!botChannel) return;
     if (oldState.channelId !== botChannel && newState.channelId !== botChannel) return;
+    await this.reevaluateChannel();
+  }
 
+  /** Пауза и таймер выхода, если в канале никого; продолжить, когда кто-то пришёл. */
+  async reevaluateChannel() {
+    const p = this.player;
+    const botChannel = p?.voiceChannelId;
+    if (!p || !botChannel || this.quietMode) return;
     const s = this.settings.get();
     const humans = this.humansIn(botChannel);
     if (humans === 0) {

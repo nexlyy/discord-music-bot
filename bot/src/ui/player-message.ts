@@ -137,6 +137,36 @@ export class PlayerMessage {
     this.lastJson = "";
   }
 
+  /** Где сейчас сообщение плеера — сохраняется в сессии, чтобы после перезапуска не слать новое. */
+  ref(): { channelId: string; messageId: string } | null {
+    return this.message ? { channelId: this.message.channelId, messageId: this.message.id } : null;
+  }
+
+  /** Подхватить сообщение плеера из прошлого запуска: дальше оно будет только редактироваться. */
+  async adopt(ref: { channelId: string; messageId: string }) {
+    const channel = await this.client.channels.fetch(ref.channelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return;
+    const msg = await channel.messages.fetch(ref.messageId).catch(() => null);
+    if (msg && msg.author.id === this.client.user?.id) {
+      this.message = msg;
+      this.lastJson = "";
+    }
+  }
+
+  /** Нет сохранённой ссылки — ищем свой последний плеер среди свежих сообщений канала. */
+  async adoptLatest(channelId: string) {
+    const channel = await this.client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return;
+    const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+    const mine = recent?.find(
+      (m) => m.author.id === this.client.user?.id && JSON.stringify(m.components.map((c) => c.toJSON())).includes('"custom_id":"mp:'),
+    );
+    if (mine) {
+      this.message = mine;
+      this.lastJson = "";
+    }
+  }
+
   isPlayerMessage(messageId: string): boolean {
     return this.message?.id === messageId;
   }

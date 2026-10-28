@@ -114,6 +114,7 @@ class QuizGame {
     this.player = await this.music.ensurePlayer(voiceChannelId, channel.id);
     const p = this.player;
     this.saved = { current: p.queue.current, position: p.position, paused: p.paused, queue: [...p.queue.tracks], repeat: p.repeatMode };
+    this.music.quietBackup = this.saved;
 
     // Очередь откладываем в сторону: иначе при ошибке трека Lavalink перескочил бы на чужой трек посреди игры.
     this.music.beginQuiet();
