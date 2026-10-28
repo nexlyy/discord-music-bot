@@ -16,6 +16,8 @@ export class PlayerMessage {
   private ticker: NodeJS.Timeout | null = null;
   private busy: Promise<void> = Promise.resolve();
   private resendNext = false;
+  /** Канал, куда плеер вызвали командой /player; пока бот не ушёл из войса, плеер живёт там. */
+  private channelOverride: string | null = null;
   private stickyTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -64,6 +66,7 @@ export class PlayerMessage {
 
   private onUpdate(reason: UpdateReason) {
     if (reason === "destroy") {
+      this.channelOverride = null;
       this.enqueue(() => this.remove());
       return;
     }
@@ -88,15 +91,22 @@ export class PlayerMessage {
     this.enqueue(() => this.render(false));
   }
 
-  /** Отправить плеер заново внизу канала (например, по команде /nowplaying). */
+  /** /player: показать плеер для всех в этом канале — старый убирается, дальше он обновляется здесь. */
+  showIn(channelId: string) {
+    this.channelOverride = channelId === this.music.player?.voiceChannelId ? null : channelId;
+    this.resendNext = false;
+    return new Promise<void>((resolve) => this.enqueue(() => this.render(true).finally(resolve)));
+  }
+
+  /** Отправить плеер заново внизу канала. */
   bump() {
     this.resendNext = false;
     this.enqueue(() => this.render(true));
   }
 
   private async channel(): Promise<SendableChannels | null> {
-    // Плеер живёт в текстовом чате того голосового канала, где играет музыка.
-    const id = this.music.player?.voiceChannelId;
+    // Плеер живёт в текстовом чате того голосового канала, где играет музыка, или там, куда его вызвали /player.
+    const id = this.channelOverride ?? this.music.player?.voiceChannelId;
     if (!id) return null;
     const ch = this.client.channels.cache.get(id) ?? (await this.client.channels.fetch(id).catch(() => null));
     return ch && ch.isSendable() ? ch : null;
@@ -179,13 +189,15 @@ export class PlayerMessage {
   }
 
   /** Подхватить сообщение плеера из прошлого запуска: дальше оно будет только редактироваться. */
-  async adopt(ref: { channelId: string; messageId: string }) {
+  async adopt(ref: { channelId: string; messageId: string }, voiceChannelId: string) {
     const channel = await this.client.channels.fetch(ref.channelId).catch(() => null);
     if (!channel?.isTextBased() || !("messages" in channel)) return;
     const msg = await channel.messages.fetch(ref.messageId).catch(() => null);
     if (msg && msg.author.id === this.client.user?.id) {
       this.message = msg;
       this.lastJson = "";
+      // Плеер был вызван в другой канал командой /player — оставляем его там и после перезапуска.
+      if (msg.channelId !== voiceChannelId) this.channelOverride = msg.channelId;
     }
   }
 

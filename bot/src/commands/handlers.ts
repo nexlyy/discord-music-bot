@@ -27,7 +27,7 @@ import { assertSameChannel, assertVoiceBot, describePlay, fail, say, toRequester
 
 /** Команды, которые действуют на Артура из войса пользователя (остальные — общие для сервера). */
 const VOICE_COMMANDS = new Set([
-  "play", "pause", "skip", "previous", "stop", "leave", "queue", "nowplaying", "shuffle", "like",
+  "play", "pause", "skip", "previous", "stop", "leave", "queue", "player", "shuffle", "like",
   "loop", "volume", "seek", "remove", "move", "jump", "clear", "autoplay", "lyrics", "quiz",
 ]);
 import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
@@ -118,11 +118,15 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), page), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       return;
     }
-    case "nowplaying": {
+    case "player": {
       assertSameChannel(i, music);
-      if (!music.player?.queue.current) throw new MusicError("В твоём войсе сейчас ничего не играет.");
-      ctx.playerMessage.bump();
-      return say(i, "🎶 Мини-плеер внизу чата");
+      if (!music.player?.voiceChannelId) throw new MusicError("В твоём войсе сейчас ничего не играет.");
+      if (!i.channel?.isSendable()) throw new MusicError("Не могу писать в этот канал.");
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      // Плеер отправляет сам Артур из войса: тогда кнопки и иконки — его.
+      await ctx.playerMessage.showIn(i.channelId);
+      await i.editReply("🎶 Плеер ниже — его видят все в этом чате");
+      return;
     }
     case "shuffle": {
       assertSameChannel(i, music);

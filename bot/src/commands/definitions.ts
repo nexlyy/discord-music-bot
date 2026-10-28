@@ -25,7 +25,7 @@ export const commands = [
     .setName("queue")
     .setDescription("Показать очередь")
     .addIntegerOption((o) => o.setName("страница").setDescription("Номер страницы").setMinValue(1)),
-  new SlashCommandBuilder().setName("nowplaying").setDescription("Показать мини-плеер внизу чата"),
+  new SlashCommandBuilder().setName("player").setDescription("Показать плеер Артура из твоего войса для всех в этом чате"),
   new SlashCommandBuilder().setName("shuffle").setDescription("Режим перемешивания: включить или выключить"),
   new SlashCommandBuilder().setName("playlists").setDescription("Мои плейлисты: создать, импортировать, включить"),
   new SlashCommandBuilder().setName("browse").setDescription("Обзор: чарты, топ сервера, радио по истории"),

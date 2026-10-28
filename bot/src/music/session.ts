@@ -143,7 +143,7 @@ export class SessionKeeper {
     };
     try {
       // Сначала подхватываем старое сообщение плеера, чтобы не появилось второе.
-      if (s.message) await this.playerMessage?.adopt(s.message);
+      if (s.message) await this.playerMessage?.adopt(s.message, s.voiceChannelId);
       else await this.playerMessage?.adoptLatest(s.voiceChannelId);
       const player = await this.music.ensurePlayer(s.voiceChannelId, s.textChannelId);
       await player.setVolume(s.volume);
