@@ -89,6 +89,8 @@ interface ServiceEvents {
 
 export class MusicService extends EventEmitter<ServiceEvents> {
   readonly lavalink: LavalinkManager;
+  /** Логи с именем бота: при нескольких Артурах видно, кто что сделал. */
+  private log = log;
   readonly guildId: string;
   private leaveTimer: NodeJS.Timeout | null = null;
   private leaveReason: "queue" | "empty" | null = null;
@@ -148,7 +150,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
         onEmptyQueue: {
           autoPlayFunction: async (player, lastTrack) => {
             if (!this.quietMode && this.autoplayEnabled && this.autoplayFn && lastTrack) {
-              await this.autoplayFn(player, lastTrack).catch((e) => log.warn("Автоплей не сработал:", e));
+              await this.autoplayFn(player, lastTrack).catch((e) => this.log.warn("Автоплей не сработал:", e));
             }
           },
         },
@@ -172,6 +174,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   async init() {
     const user = this.client.user;
     if (!user) throw new Error("Клиент Discord ещё не готов");
+    this.log = createLogger(`music:${user.username}`);
     await this.lavalink.init({ id: user.id, username: user.username });
   }
 
@@ -670,8 +673,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       if (!p) return;
       if (reason === "queue" && p.queue.current) return;
       if (reason === "empty" && this.humansIn(p.voiceChannelId) > 0) return;
-      log.info(`Выхожу из канала: ${reason === "queue" ? "очередь закончилась" : "в канале никого"}`);
-      this.destroyPlayer(p, reason === "queue" ? "Очередь закончилась" : "В канале никого").catch((e) => log.warn(e));
+      this.log.info(`Выхожу из канала: ${reason === "queue" ? "очередь закончилась" : "в канале никого"}`);
+      this.destroyPlayer(p, reason === "queue" ? "Очередь закончилась" : "В канале никого").catch((e) => this.log.warn(e));
     }, seconds * 1000);
   }
 
@@ -728,10 +731,10 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     if (p?.queue.current) return; // не дёргаем играющий плеер
     try {
       await this.ensurePlayer(s.stay247ChannelId, s.stay247ChannelId);
-      log.info("24/7: подключился к каналу", s.stay247ChannelId);
+      this.log.info("24/7: подключился к каналу", s.stay247ChannelId);
       this.emit("update", "connect");
     } catch (e) {
-      log.warn("24/7: не удалось зайти в канал:", e);
+      this.log.warn("24/7: не удалось зайти в канал:", e);
     }
   }
 
@@ -745,7 +748,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       this.trackNumber++;
       prefetch(player.queue.tracks[0]);
       this.cancelLeave("queue");
-      log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
+      this.log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
       this.emit("update", "trackStart");
     });
     lm.on("trackEnd", () => {
@@ -759,15 +762,15 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     lm.on("trackError", (_player, track, payload) => {
       const raw = payload?.exception?.message ?? payload?.exception?.cause ?? "";
       const text = humanizeLoadError(raw);
-      log.warn(`Ошибка трека "${track?.info?.title}": ${raw}`);
+      this.log.warn(`Ошибка трека "${track?.info?.title}": ${raw}`);
       this.emit("trackError", isYoutubeAuthError(raw) ? raw : text, track);
     });
     lm.on("trackStuck", (_player, track) => {
-      log.warn(`Трек завис: ${track?.info?.title}`);
+      this.log.warn(`Трек завис: ${track?.info?.title}`);
       this.emit("trackError", "Трек завис и был пропущен.", track);
     });
     lm.on("playerDestroy", (_player, reason) => {
-      log.info("Плеер уничтожен:", reason ?? "");
+      this.log.info("Плеер уничтожен:", reason ?? "");
       this.cancelLeave();
       this.autoPausedForEmpty = false;
       this.trackNumber = 0;
@@ -779,17 +782,17 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       if (this.stay247) setTimeout(() => void this.ensureStay247(), 3_000);
     });
     lm.on("playerMove", (_player, _old, newChannel) => {
-      log.info("Плеер перемещён в канал", newChannel);
+      this.log.info("Плеер перемещён в канал", newChannel);
       this.emit("update", "connect");
     });
 
     const nm = lm.nodeManager;
-    nm.on("connect", (node) => log.info(`Lavalink "${node.id}" подключён`));
+    nm.on("connect", (node) => this.log.info(`Lavalink "${node.id}" подключён`));
     nm.on("disconnect", (node, reason) => {
-      log.warn(`Lavalink "${node.id}" отключился:`, reason);
+      this.log.warn(`Lavalink "${node.id}" отключился:`, reason);
       this.emit("nodeDown", node, `${reason?.code ?? ""} ${reason?.reason ?? ""}`.trim());
     });
-    nm.on("error", (node, error) => log.warn(`Lavalink "${node.id}" ошибка:`, error?.message ?? error));
+    nm.on("error", (node, error) => this.log.warn(`Lavalink "${node.id}" ошибка:`, error?.message ?? error));
     nm.on("raw", (node, payload) => {
       const p = payload as { op?: string; resumed?: boolean };
       if (p?.op !== "ready") return;
@@ -800,15 +803,15 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
   private async onNodeReady(node: LavalinkNode, resumed: boolean) {
     // Сессия переживёт короткий обрыв связи бота с Lavalink (до 60 с).
-    await node.updateSession(true, 60_000).catch((e) => log.warn("updateSession:", e));
+    await node.updateSession(true, 60_000).catch((e) => this.log.warn("updateSession:", e));
     await node.fetchInfo().then((info) => (node.info = info)).catch(() => undefined);
-    log.info(`Lavalink готов (${resumed ? "сессия восстановлена" : "новая сессия"}), площадки: ${[...this.availableManagers()].join(", ")}`);
+    this.log.info(`Lavalink готов (${resumed ? "сессия восстановлена" : "новая сессия"}), площадки: ${[...this.availableManagers()].join(", ")}`);
     this.emit("nodeUp", node);
     if (!resumed) await this.recoverPlayers(node);
     if (this.onFirstReady) {
       const restore = this.onFirstReady;
       this.onFirstReady = null;
-      await restore().catch((e) => log.warn("Восстановление сессии:", e));
+      await restore().catch((e) => this.log.warn("Восстановление сессии:", e));
     }
     await this.ensureStay247();
     this.emit("update", "connect");
@@ -826,9 +829,9 @@ export class MusicService extends EventEmitter<ServiceEvents> {
           playerOptions: { voice: player.voice, volume: player.lavalinkVolume },
         });
         if (current) await player.play({ clientTrack: current, position, paused: player.paused, voice: player.voice });
-        log.info("Плеер восстановлен после перезапуска Lavalink");
+        this.log.info("Плеер восстановлен после перезапуска Lavalink");
       } catch (e) {
-        log.warn("Не удалось восстановить плеер, пересоздаю:", e);
+        this.log.warn("Не удалось восстановить плеер, пересоздаю:", e);
         await player.destroy("Восстановление после перезапуска Lavalink").catch(() => undefined);
       }
     }

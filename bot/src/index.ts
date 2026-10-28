@@ -141,6 +141,8 @@ function createInstance(index: number): BotInstance {
     c.user.setActivity("/play", { type: ActivityType.Custom });
     await syncEmojis(c);
     await music.init();
+    // Когда сессия восстановится и плеер будет подхвачен, убираем плееры, брошенные прошлым запуском.
+    setTimeout(() => void inst.playerMessage.sweepGuild(config.DISCORD_GUILD_ID).catch((e) => log.warn("Уборка плееров:", e)), 20_000);
     if (index === 0) {
       wrapped.start();
       void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**, помощников: ${instances.length - 1}.`, 60_000);
@@ -176,7 +178,10 @@ function pickInstance(i: Interaction): { inst: BotInstance; bound: boolean } {
   if (own.index !== 0) return { inst: own, bound: servesVoice(own) };
   if (i.isChatInputCommand() && i.commandName === "247") return { inst: main, bound: servesVoice(main) };
   if (!voice) return { inst: main, bound: false };
-  const serving = instances.find((x) => x.music.player?.voiceChannelId === voice) ?? instances.find((x) => x.music.isFreeFor(voice));
+  // Главный Артур держится за основной канал (выбранный для 24/7): в другие войсы сначала идут помощники.
+  const home = settings.get().stay247ChannelId;
+  const order = voice === home || !home ? instances : [...instances.slice(1), main];
+  const serving = instances.find((x) => x.music.player?.voiceChannelId === voice) ?? order.find((x) => x.music.isFreeFor(voice));
   return serving ? { inst: serving, bound: true } : { inst: main, bound: false };
 }
 

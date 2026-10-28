@@ -128,6 +128,36 @@ export class PlayerMessage {
     if (this.message) await this.message.delete().catch(() => undefined);
     this.message = await channel.send(payload);
     this.lastJson = json;
+    await this.sweepChannel(channel.id);
+  }
+
+  private isMyPlayer(m: Message): boolean {
+    return m.author.id === this.client.user?.id && JSON.stringify(m.components.map((c) => c.toJSON())).includes('"custom_id":"mp:');
+  }
+
+  /** Удалить свои старые плееры в канале (остались от прошлых запусков) — кроме текущего. */
+  async sweepChannel(channelId: string) {
+    const channel = await this.client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return 0;
+    const recent = await channel.messages.fetch({ limit: 30 }).catch(() => null);
+    let removed = 0;
+    for (const m of recent?.values() ?? []) {
+      if (m.id === this.message?.id || !this.isMyPlayer(m)) continue;
+      await m.delete().then(() => removed++, () => undefined);
+    }
+    return removed;
+  }
+
+  /** После запуска: пройти чаты всех голосовых каналов и убрать брошенные плееры этого бота. */
+  async sweepGuild(guildId: string) {
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return;
+    let removed = 0;
+    for (const ch of guild.channels.cache.values()) {
+      if (!ch.isVoiceBased()) continue;
+      removed += await this.sweepChannel(ch.id);
+    }
+    if (removed) log.info(`${this.client.user?.username}: убрал брошенных плееров — ${removed}`);
   }
 
   private async remove() {
