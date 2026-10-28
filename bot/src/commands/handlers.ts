@@ -23,7 +23,13 @@ import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue
 import { fromStored, withRequester } from "../library/stored-track.js";
 import type { WrappedPeriod } from "../wrapped/wrapped.js";
 import type { QuizMode } from "../quiz/drop.js";
-import { assertSameChannel, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
+import { assertSameChannel, assertVoiceBot, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
+
+/** Команды, которые действуют на Артура из войса пользователя (остальные — общие для сервера). */
+const VOICE_COMMANDS = new Set([
+  "play", "pause", "skip", "previous", "stop", "leave", "queue", "nowplaying", "shuffle", "like",
+  "loop", "volume", "seek", "remove", "move", "jump", "clear", "autoplay", "lyrics", "quiz",
+]);
 import { openAddTo, openBrowse, openEffects, openPlaylists, runLibraryComponent, runLibraryModal, toggleLike } from "./library-handlers.js";
 
 const log = createLogger("commands");
@@ -32,6 +38,10 @@ const log = createLogger("commands");
 
 async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
   const { music, settings } = ctx;
+  if (VOICE_COMMANDS.has(i.commandName) && !(i.commandName === "quiz" && i.options.getSubcommand() === "top")) {
+    const starting = i.commandName === "play" || (i.commandName === "quiz" && i.options.getSubcommand() === "start");
+    assertVoiceBot(i, ctx, starting);
+  }
 
   switch (i.commandName) {
     case "play": {
@@ -103,12 +113,14 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return say(i, `👋 Вышел из канала${was247 ? ". Режим 24/7 выключен." : ""}`);
     }
     case "queue": {
+      assertSameChannel(i, music);
       const page = i.options.getInteger("страница") ?? 1;
       await i.reply({ ...buildQueueMessage(music.snapshot(), settings.get(), page), flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       return;
     }
     case "nowplaying": {
-      if (!music.player) throw new MusicError("Сейчас ничего не играет.");
+      assertSameChannel(i, music);
+      if (!music.player?.queue.current) throw new MusicError("В твоём войсе сейчас ничего не играет.");
       ctx.playerMessage.bump();
       return say(i, "🎶 Мини-плеер внизу чата");
     }
@@ -122,6 +134,7 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     case "browse":
       return openBrowse(i, ctx);
     case "like":
+      assertSameChannel(i, music);
       return toggleLike(i, ctx);
     case "quiz": {
       const sub = i.options.getSubcommand();
@@ -136,20 +149,23 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
     }
     case "cleanup": {
       await i.deferReply({ flags: MessageFlags.Ephemeral });
-      const channel = i.channel;
-      if (!channel || !("messages" in channel)) throw new MusicError("Здесь нечего чистить.");
-      const me = i.client.user.id;
       let deleted = 0;
-      let before: string | undefined;
-      // Только свои сообщения бота за последние 300 сообщений канала; плеер и закреплённые не трогаем.
-      for (let page = 0; page < 3; page++) {
-        const batch = await channel.messages.fetch({ limit: 100, before });
-        if (batch.size === 0) break;
-        for (const m of batch.values()) {
-          if (m.author.id !== me || m.pinned || ctx.playerMessage.isPlayerMessage(m.id)) continue;
-          await m.delete().then(() => deleted++, () => undefined);
+      // Удалить чужое сообщение без особых прав нельзя, поэтому каждый Артур удаляет свои.
+      // Только последние 300 сообщений канала; плееры и закреплённые не трогаем.
+      for (const bot of ctx.bots) {
+        const me = bot.client.user?.id;
+        const channel = me ? await bot.client.channels.fetch(i.channelId).catch(() => null) : null;
+        if (!channel || !("messages" in channel)) continue;
+        let before: string | undefined;
+        for (let page = 0; page < 3; page++) {
+          const batch = await channel.messages.fetch({ limit: 100, before }).catch(() => null);
+          if (!batch || batch.size === 0) break;
+          for (const m of batch.values()) {
+            if (m.author.id !== me || m.pinned || bot.playerMessage.isPlayerMessage(m.id)) continue;
+            await m.delete().then(() => deleted++, () => undefined);
+          }
+          before = batch.lastKey();
         }
-        before = batch.lastKey();
       }
       await i.editReply(deleted ? `🧹 Удалено моих сообщений: ${deleted}` : "🧹 Моих старых сообщений здесь нет");
       return;
@@ -205,12 +221,14 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       return say(i, `🧹 Очередь очищена (${tracksWord(n)})`);
     }
     case "autoplay": {
-      const enabled = i.options.getBoolean("включить") ?? !settings.get().autoplay;
+      assertSameChannel(i, music);
+      const enabled = i.options.getBoolean("включить") ?? !music.autoplayEnabled;
       music.setAutoplayEnabled(enabled);
       return say(i, enabled ? "♾️ Автоплей включён: когда очередь кончится, добавлю похожие треки" : "♾️ Автоплей выключен");
     }
     case "lyrics":
       // Текст видит только тот, кто его открыл.
+      assertSameChannel(i, music);
       return ctx.lyrics.open(i);
     case "247": {
       const enabled = i.options.getBoolean("включить") ?? !settings.get().stay247;
@@ -371,7 +389,7 @@ async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
       await music.toggleRepeat("track");
       break;
     case OPTION_VALUES.autoplay:
-      music.setAutoplayEnabled(!settings.get().autoplay);
+      music.setAutoplayEnabled(!music.autoplayEnabled);
       break;
     case OPTION_VALUES.volDown:
       await music.changeVolume(-settings.get().volumeStep);
@@ -494,8 +512,8 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
 async function runModal(i: ModalSubmitInteraction, ctx: Ctx) {
   if (await runLibraryModal(i, ctx)) return;
   if (i.customId !== ADD_MODAL_ID) return;
-  const voice = userVoiceChannel(i);
-  if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");
+  assertVoiceBot(i, ctx, true);
+  const voice = userVoiceChannel(i)!;
   await i.deferReply({ flags: MessageFlags.Ephemeral });
   const sourceValue = i.fields.getStringSelectValues("source")[0];
   const result = await ctx.music.play({

@@ -1,4 +1,4 @@
-import { ActivityType, Client, Events, GatewayIntentBits, type Guild, type GuildMember, type Interaction } from "discord.js";
+import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, type Guild, type GuildMember, type Interaction } from "discord.js";
 import type { Ctx } from "./commands/common.js";
 import { commandsJson } from "./commands/definitions.js";
 import { handleInteraction } from "./commands/handlers.js";
@@ -165,16 +165,21 @@ const wrapped = new Wrapped(main.client, config, settings, history, quizStore);
  * Какой Артур отвечает на действие. Кнопки помощника — сам помощник. Для команд главного: тот, кто уже
  * играет в войсе пользователя, иначе первый свободный (главный, если не занят). 24/7 — только главный.
  */
-function pickInstance(i: Interaction): BotInstance {
-  const own = instances.find((x) => x.client === i.client) ?? main;
-  if (own.index !== 0) return own;
-  if (i.isChatInputCommand() && i.commandName === "247") return main;
+function pickInstance(i: Interaction): { inst: BotInstance; bound: boolean } {
   const voice = (i.member as GuildMember | null)?.voice?.channelId ?? null;
-  if (!voice) return main;
-  return instances.find((x) => x.music.player?.voiceChannelId === voice) ?? instances.find((x) => x.music.isFreeFor(voice)) ?? main;
+  const own = instances.find((x) => x.client === i.client) ?? main;
+  const servesVoice = (x: BotInstance) => Boolean(voice) && (x.music.player?.voiceChannelId === voice || x.music.isFreeFor(voice!));
+  // Кнопки на обычных сообщениях бота (его плеер, «Угадай трек») — к тому Артуру, что их отправил.
+  // Скрытые ответы (очередь, плейлисты, обзор) общие — для них решает войс пользователя.
+  if (i.isMessageComponent() && !i.message.flags.has(MessageFlags.Ephemeral)) return { inst: own, bound: servesVoice(own) };
+  if (own.index !== 0) return { inst: own, bound: servesVoice(own) };
+  if (i.isChatInputCommand() && i.commandName === "247") return { inst: main, bound: servesVoice(main) };
+  if (!voice) return { inst: main, bound: false };
+  const serving = instances.find((x) => x.music.player?.voiceChannelId === voice) ?? instances.find((x) => x.music.isFreeFor(voice));
+  return serving ? { inst: serving, bound: true } : { inst: main, bound: false };
 }
 
-function ctxFor(inst: BotInstance): Ctx {
+function ctxFor(inst: BotInstance, bound: boolean): Ctx {
   return {
     config,
     settings,
@@ -187,13 +192,15 @@ function ctxFor(inst: BotInstance): Ctx {
     playerMessage: inst.playerMessage,
     lyrics: inst.lyrics,
     instanceIndex: inst.index,
+    boundToVoice: bound,
+    bots: instances.map((x) => ({ client: x.client, playerMessage: x.playerMessage })),
   };
 }
 
 async function dispatch(i: Interaction) {
-  const inst = pickInstance(i);
+  const { inst, bound } = pickInstance(i);
   // Отвечает тот бот, которому пришло взаимодействие, — значит, и иконки его.
-  await withEmojiScope(i.client.application?.id, () => handleInteraction(i, ctxFor(inst)));
+  await withEmojiScope(i.client.application?.id, () => handleInteraction(i, ctxFor(inst, bound)));
 }
 
 // Кто сколько слушал: раз в 30 секунд начисляем время тем, кто в канале, пока музыка играет.

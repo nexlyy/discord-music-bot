@@ -102,6 +102,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   /** Вызывается перед тем, как бот сам выходит из канала (например, чтобы снять статус канала). */
   beforeLeave: ((channelId: string) => Promise<void>) | null = null;
   private shuffleOn = false;
+  /** Автоплей у каждого Артура свой; значение из настроек — по умолчанию для новой сессии. */
+  private autoplayOn: boolean | null = null;
   private originalOrder: (Track | UnresolvedTrack)[] = [];
 
   constructor(
@@ -143,7 +145,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
         onDisconnect: { autoReconnect: false, destroyPlayer: true },
         onEmptyQueue: {
           autoPlayFunction: async (player, lastTrack) => {
-            if (!this.quietMode && this.settings.get().autoplay && this.autoplayFn && lastTrack) {
+            if (!this.quietMode && this.autoplayEnabled && this.autoplayFn && lastTrack) {
               await this.autoplayFn(player, lastTrack).catch((e) => log.warn("Автоплей не сработал:", e));
             }
           },
@@ -204,7 +206,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       position: p?.queue.current ? p.position : 0,
       volume: p?.volume ?? s.defaultVolume,
       repeatMode: p?.repeatMode ?? "off",
-      autoplay: s.autoplay,
+      autoplay: this.autoplayEnabled,
       stay247: this.stay247,
       canStay247: this.allow247,
       current: p?.queue.current && !this.quietMode ? toTrackView(p.queue.current) : null,
@@ -392,7 +394,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       await p.skip(0, false);
     } else {
       // Очередь пуста: останавливаем трек, а автоплей (если включён) подхватит похожие.
-      await p.stopPlaying(false, this.settings.get().autoplay);
+      await p.stopPlaying(false, this.autoplayEnabled);
     }
     this.emit("update", "queue");
   }
@@ -582,8 +584,12 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     return n;
   }
 
+  get autoplayEnabled(): boolean {
+    return this.autoplayOn ?? this.settings.get().autoplay;
+  }
+
   setAutoplayEnabled(enabled: boolean) {
-    this.settings.update({ autoplay: enabled });
+    this.autoplayOn = enabled;
     this.emit("update", "autoplay");
   }
 
@@ -749,6 +755,7 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       this.trackNumber = 0;
       this.shuffleOn = false;
       this.originalOrder = [];
+      this.autoplayOn = null;
       this.emit("update", "destroy");
       // В режиме 24/7 возвращаемся в канал (если нас не выгнали вручную — тогда канал сменится через настройки).
       if (this.stay247) setTimeout(() => void this.ensureStay247(), 3_000);

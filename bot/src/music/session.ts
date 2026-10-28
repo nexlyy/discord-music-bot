@@ -26,6 +26,7 @@ export interface SavedSession {
   paused: boolean;
   volume: number;
   repeatMode: RepeatMode;
+  autoplay?: boolean;
   queue: SavedEntry[];
   savedAt: number;
 }
@@ -83,6 +84,7 @@ export class SessionKeeper {
       paused: p.paused,
       volume: p.volume,
       repeatMode: p.repeatMode,
+      autoplay: this.music.autoplayEnabled,
       queue: p.queue.tracks.map(toEntry).filter((e): e is SavedEntry => e !== null),
       savedAt: Date.now(),
     };
@@ -127,6 +129,7 @@ export class SessionKeeper {
       const player = await this.music.ensurePlayer(s.voiceChannelId, s.textChannelId);
       await player.setVolume(s.volume);
       if (s.repeatMode !== "off") await player.setRepeatMode(s.repeatMode);
+      if (typeof s.autoplay === "boolean") this.music.setAutoplayEnabled(s.autoplay);
       if (s.queue.length) await player.queue.add(s.queue.map(build));
       if (s.current) await player.play({ clientTrack: build(s.current), position: s.position, paused: s.paused });
       else if (player.queue.tracks.length) await player.play({ paused: false });

@@ -25,6 +25,10 @@ export interface Ctx {
   quiz: QuizManager;
   /** Какой Артур обслуживает действие: 0 — главный, 1+ — помощники */
   instanceIndex: number;
+  /** Выбранный Артур играет в войсе пользователя или свободен и может туда зайти */
+  boundToVoice: boolean;
+  /** Все Артуры (для /cleanup: каждый удаляет свои сообщения) */
+  bots: { client: import("discord.js").Client; playerMessage: PlayerMessage }[];
   music: MusicService;
   settings: SettingsStore;
   playerMessage: PlayerMessage;
@@ -44,10 +48,26 @@ export function userVoiceChannel(i: Interaction): string | null {
 }
 
 /** Управлять плеером можно только из того же голосового канала. */
+/** Управлять Артуром можно только из того войса, где он играет. */
 export function assertSameChannel(i: Interaction, music: MusicService) {
   const botChannel = music.player?.voiceChannelId;
   if (!botChannel) return;
-  if (userVoiceChannel(i) !== botChannel) throw new MusicError(`Зайди в <#${botChannel}>, чтобы управлять музыкой.`);
+  const voice = userVoiceChannel(i);
+  if (voice !== botChannel) {
+    throw new MusicError(voice ? `Этот Артур играет в <#${botChannel}> — управлять им могут только те, кто там.` : `Зайди в <#${botChannel}>, чтобы управлять музыкой.`);
+  }
+}
+
+/** Команда для Артура из войса пользователя: войс обязателен, и в нём должен быть (или мочь появиться) свой Артур. */
+export function assertVoiceBot(i: Interaction, ctx: Ctx, starting: boolean) {
+  if (!userVoiceChannel(i)) throw new MusicError("Зайди в голосовой канал: музыкальные команды работают для Артура из твоего войса.");
+  if (!ctx.boundToVoice) {
+    throw new MusicError(
+      starting
+        ? "Все Артуры сейчас играют в других войсах. Подожди, пока кто-то освободится."
+        : "В твоём войсе сейчас нет Артура. Включи музыку: `/play`",
+    );
+  }
 }
 
 export async function say(i: Replyable, content: string, ephemeral = true) {

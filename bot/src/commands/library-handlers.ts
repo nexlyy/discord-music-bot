@@ -17,7 +17,7 @@ import { MusicError } from "../music/types.js";
 import { isUrl } from "../sources.js";
 import { BR, FX, buildBrowseHome, buildEffectsCard, buildRecentView, buildTopView } from "../ui/browse-view.js";
 import { PL, buildAddToPlaylist, buildDeleteConfirm, buildPlaylistView, buildPlaylistsHome } from "../ui/library-view.js";
-import { assertSameChannel, describePlay, toRequester, userVoiceChannel, type Ctx } from "./common.js";
+import { assertSameChannel, assertVoiceBot, describePlay, toRequester, userVoiceChannel, type Ctx } from "./common.js";
 
 type Component = ButtonInteraction | StringSelectMenuInteraction;
 type Opener = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction;
@@ -40,8 +40,8 @@ async function playStored(
   stored: StoredTrack[],
   opts: { name?: string | null; url?: string | null; shuffle?: boolean } = {},
 ) {
-  const voice = userVoiceChannel(i);
-  if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");
+  assertVoiceBot(i, ctx, true);
+  const voice = userVoiceChannel(i)!;
   const requester = toRequester(i.user);
   const tracks = stored.map((s) => fromStored(s, ctx.music.lavalink, requester));
   const result = await ctx.music.play({
@@ -247,8 +247,8 @@ export async function runLibraryComponent(i: Component, ctx: Ctx): Promise<boole
   if (id === BR.chart) {
     const chart = CHARTS[Number(select)];
     if (!chart) return true;
-    const voice = userVoiceChannel(i);
-    if (!voice) throw new MusicError("Сначала зайди в голосовой канал.");
+    assertVoiceBot(i, ctx, true);
+    const voice = userVoiceChannel(i)!;
     await i.deferUpdate();
     const result = await ctx.music.play({ query: chart.url, voiceChannelId: voice, textChannelId: i.channelId, requester: toRequester(i.user) });
     await followUp(i, describePlay(result));
@@ -290,7 +290,7 @@ export async function runLibraryComponent(i: Component, ctx: Ctx): Promise<boole
     const picks = ctx.history.radio(scope === "me" ? userId : undefined, 20);
     if (picks.length === 0) throw new MusicError(scope === "me" ? "Для радио нужна история: послушай что-нибудь." : "История сервера пока пуста.");
     await i.deferUpdate();
-    if (!ctx.settings.get().autoplay) ctx.music.setAutoplayEnabled(true);
+    if (!ctx.music.autoplayEnabled) ctx.music.setAutoplayEnabled(true);
     const text = await playStored(i, ctx, picks, { name: scope === "me" ? "Моё радио" : "Радио сервера" });
     await followUp(i, `${text}\n-# Когда подборка закончится, автоплей продолжит похожими треками.`);
     return true;
