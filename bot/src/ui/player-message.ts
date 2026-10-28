@@ -1,4 +1,4 @@
-import { Events, type Client, type Message, type SendableChannels } from "discord.js";
+import { Events, PermissionFlagsBits, type Client, type Message, type SendableChannels } from "discord.js";
 import { createLogger } from "../logger.js";
 import type { MusicService } from "../music/service.js";
 import type { UpdateReason } from "../music/types.js";
@@ -148,13 +148,19 @@ export class PlayerMessage {
     return removed;
   }
 
-  /** После запуска: пройти чаты всех голосовых каналов и убрать брошенные плееры этого бота. */
+  /**
+   * После запуска: пройти все каналы, где бот может читать (чаты войсов и текстовые — раньше плеер жил в #муз),
+   * и убрать брошенные плееры этого бота.
+   */
   async sweepGuild(guildId: string) {
     const guild = this.client.guilds.cache.get(guildId);
-    if (!guild) return;
+    const me = guild?.members.me;
+    if (!guild || !me) return;
     let removed = 0;
     for (const ch of guild.channels.cache.values()) {
-      if (!ch.isVoiceBased()) continue;
+      if (!ch.isTextBased() || ch.isThread()) continue;
+      const perms = ch.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms.has(PermissionFlagsBits.ReadMessageHistory)) continue;
       removed += await this.sweepChannel(ch.id);
     }
     if (removed) log.info(`${this.client.user?.username}: убрал брошенных плееров — ${removed}`);
