@@ -122,11 +122,16 @@ export class SessionKeeper {
     this.frozen = true;
   }
 
-  /** Сессия, оставшаяся с прошлого запуска (если свежая). Файл после чтения удаляется. */
+  /**
+   * Сессия, оставшаяся с прошлого запуска (если свежая). Файл не удаляется: если бота остановят сразу
+   * после старта, до того как восстановленное сохранится, сессия не должна пропасть.
+   */
   takePending(): SavedSession | null {
     const s = this.file.read();
-    this.clear();
-    if (!s?.voiceChannelId || Date.now() - s.savedAt > MAX_AGE_MS) return null;
+    if (!s?.voiceChannelId || Date.now() - s.savedAt > MAX_AGE_MS) {
+      this.clear();
+      return null;
+    }
     return s;
   }
 
@@ -157,6 +162,7 @@ export class SessionKeeper {
       // Пока бот перезапускался, все могли выйти — тогда пауза и обычный таймер выхода.
       await this.music.reevaluateChannel();
       log.info(`Сессия восстановлена: ${s.current ? `${s.current.track.info.author} — ${s.current.track.info.title}` : "очередь"}, в очереди ${s.queue.length}`);
+      this.save();
     } catch (e) {
       log.warn("Не удалось восстановить сессию:", e);
     }
