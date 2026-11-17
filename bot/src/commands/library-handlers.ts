@@ -12,10 +12,14 @@ import {
 import { escapeMd, tracksWord, truncate } from "../format.js";
 import { CHARTS } from "../library/charts.js";
 import { fromStored, toStored, type StoredTrack } from "../library/stored-track.js";
+import type { Track } from "lavalink-client";
+import { looseKey } from "../library/history.js";
+import { createLogger } from "../logger.js";
+import { similarTracks } from "../music/autoplay.js";
 import { EFFECTS, type EffectKey } from "../music/service.js";
-import { MusicError } from "../music/types.js";
+import { AUTOPLAY_REQUESTER, MusicError } from "../music/types.js";
 import { isUrl } from "../sources.js";
-import { BR, FX, buildBrowseHome, buildEffectsCard, buildRecentView, buildTopView } from "../ui/browse-view.js";
+import { BR, FX, buildBrowseHome, buildEffectsCard, buildRecentView, buildRepeatView, buildTopView } from "../ui/browse-view.js";
 import { PL, buildAddToPlaylist, buildDeleteConfirm, buildPlaylistView, buildPlaylistsHome } from "../ui/library-view.js";
 import { assertSameChannel, assertVoiceBot, describePlay, toRequester, userVoiceChannel, type Ctx } from "./common.js";
 
@@ -23,6 +27,7 @@ type Component = ButtonInteraction | StringSelectMenuInteraction;
 type Opener = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction;
 
 const EPHEMERAL_V2 = MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral;
+const log = createLogger("library");
 
 /* ------------------------------ общие ------------------------------ */
 
@@ -59,6 +64,76 @@ async function playStored(
 
 async function followUp(i: Component | ModalSubmitInteraction, content: string) {
   await i.followUp({ content, flags: MessageFlags.Ephemeral | MessageFlags.SuppressEmbeds, allowedMentions: { parse: [] } });
+}
+
+/* ------------------------------ микс войса ------------------------------ */
+
+const BLEND_NAME = "Микс войса";
+const BLEND_SIZE = 24;
+/** Сколько новых треков (которых на сервере ещё не слышали) подмешать в микс. */
+const BLEND_FRESH = 6;
+
+/**
+ * «Микс войса»: любимое каждого, кто сейчас в войсе, по очереди, и немного новых похожих треков.
+ * Микс начинает играть сразу, а новые треки ищутся в фоне и встают между знакомыми.
+ */
+async function playBlend(i: Component, ctx: Ctx) {
+  assertVoiceBot(i, ctx, true);
+  const voice = userVoiceChannel(i)!;
+  const channel = i.guild?.channels.cache.get(voice);
+  const people = channel?.isVoiceBased() ? [...channel.members.filter((m) => !m.user.bot).values()] : [];
+  const ids = people.length ? people.map((m) => m.id) : [i.user.id];
+  const blend = ctx.history.blend(ids, BLEND_SIZE);
+  if (blend.tracks.length === 0) throw new MusicError("У тех, кто в войсе, пока нет истории: включите что-нибудь, и микс соберётся.");
+
+  await i.deferUpdate();
+  const requester = toRequester(i.user);
+  const result = await ctx.music.play({
+    query: "",
+    tracks: blend.tracks.map((s) => fromStored(s, ctx.music.lavalink, requester)),
+    playlistName: BLEND_NAME,
+    shuffle: false,
+    voiceChannelId: voice,
+    textChannelId: i.channelId,
+    requester,
+  });
+  const names = blend.members.map((id) => escapeMd(people.find((m) => m.id === id)?.displayName ?? "?"));
+  await followUp(i, `${describePlay(result)}\n-# Любимое: ${names.join(", ")}. Сейчас подмешаю новые похожие треки, которых здесь ещё не слышали.`);
+
+  void addFreshTracks(ctx, blend.tracks, new Set(result.added)).catch((e) => log.warn("Микс войса: новые треки не добавились:", e));
+}
+
+async function addFreshTracks(ctx: Ctx, seeds: StoredTrack[], blendTracks: Set<Track>) {
+  const player = ctx.music.player;
+  if (!player) return;
+  const heard = ctx.history.heardKeys();
+  const fresh: Track[] = [];
+  // Семена — первые треки микса (по одному любимому от каждого), похожие ищем через рекомендации площадки.
+  for (const seed of seeds.slice(0, 4)) {
+    if (fresh.length >= BLEND_FRESH || !seed.encoded) continue;
+    const similar = await similarTracks(player, fromStored(seed, ctx.music.lavalink, AUTOPLAY_REQUESTER)).catch(() => [] as Track[]);
+    let fromSeed = 0;
+    for (const t of similar) {
+      if (t.info.isStream || (t.info.duration ?? 0) > 10 * 60_000 || (t.info.duration ?? 0) < 60_000) continue;
+      const key = looseKey(t.info.author, t.info.title);
+      if (heard.has(key)) continue;
+      heard.add(key);
+      t.userData = { ...(t.userData ?? {}), playlistName: BLEND_NAME, playlistUrl: null };
+      fresh.push(t);
+      if (++fromSeed >= 2 || fresh.length >= BLEND_FRESH) break;
+    }
+  }
+  if (fresh.length === 0 || ctx.music.player !== player) return;
+
+  // Встаём между треками микса, не раньше третьего: начало — знакомое.
+  for (const t of fresh) {
+    const positions = player.queue.tracks.map((q, idx) => (blendTracks.has(q as Track) ? idx : -1)).filter((idx) => idx >= 2);
+    if (positions.length === 0) break;
+    const at = positions[Math.floor(Math.random() * positions.length)]! + 1;
+    await player.queue.add(t, at);
+  }
+  log.info(`Микс войса: подмешал ${fresh.length} новых треков`);
+  ctx.music.emit("update", "queue");
 }
 
 /* ------------------------------ открытие экранов ------------------------------ */
@@ -283,6 +358,22 @@ export async function runLibraryComponent(i: Component, ctx: Ctx): Promise<boole
     if (!track) throw new MusicError("Трек не найден, открой «Недавние» заново.");
     await i.deferUpdate();
     await followUp(i, await playStored(i, ctx, [track]));
+    return true;
+  }
+  if (id === BR.repeat) {
+    await i.update(buildRepeatView(ctx.history.onRepeat(userId), settings));
+    return true;
+  }
+  if (id.startsWith(BR.playRepeat)) {
+    const entries = ctx.history.onRepeat(userId);
+    if (entries.length === 0) throw new MusicError("«На повторе» пока пусто.");
+    await i.deferUpdate();
+    const shuffle = id.slice(BR.playRepeat.length) === "shuffle";
+    await followUp(i, await playStored(i, ctx, entries.map((e) => e.track), { name: "На повторе", shuffle }));
+    return true;
+  }
+  if (id === BR.blend) {
+    await playBlend(i, ctx);
     return true;
   }
   if (id.startsWith(BR.radio)) {

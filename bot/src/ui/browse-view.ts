@@ -26,6 +26,9 @@ export const BR = {
   playTop: "br:playtop:",
   playRecent: "br:playrecent",
   wrapped: "br:wrapped",
+  repeat: "br:repeat",
+  playRepeat: "br:playrepeat:",
+  blend: "br:blend",
 } as const;
 
 export const FX = { set: "fx:set" } as const;
@@ -41,7 +44,11 @@ function btn(id: string, key: IconKey, label?: string, style = ButtonStyle.Secon
 const container = (settings: Settings) => new ContainerBuilder().setAccentColor(hexToInt(settings.accentColor));
 
 export function buildBrowseHome(settings: Settings, historySize: number, note?: string) {
-  const lines = ["### Обзор", "Чарты и подборки, топ сервера и радио по истории прослушиваний."];
+  const lines = [
+    "### Обзор",
+    "Чарты и подборки, топ сервера и радио по истории прослушиваний.",
+    "-# **На повторе** — что ты крутишь последние дни. **Микс войса** — любимое всех, кто сейчас в войсе, плюс новые похожие треки.",
+  ];
   if (note) lines.push(note);
   if (historySize === 0) lines.push("-# История пока пуста: топы и радио появятся, когда послушаете что-нибудь.");
   const c = container(settings)
@@ -64,8 +71,10 @@ export function buildBrowseHome(settings: Settings, historySize: number, note?: 
     )
     .addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        btn(`${BR.radio}server`, "radio", "Радио сервера", ButtonStyle.Primary, historySize === 0),
-        btn(`${BR.radio}me`, "radio", "Моё радио", ButtonStyle.Primary, historySize === 0),
+        btn(BR.repeat, "repeat", "На повторе", ButtonStyle.Primary, historySize === 0),
+        btn(BR.blend, "autoplay", "Микс войса", ButtonStyle.Primary, historySize === 0),
+        btn(`${BR.radio}server`, "radio", "Радио сервера", ButtonStyle.Secondary, historySize === 0),
+        btn(`${BR.radio}me`, "radio", "Моё радио", ButtonStyle.Secondary, historySize === 0),
       ),
     );
   return { components: [c], flags: V2 };
@@ -82,6 +91,27 @@ export function buildTopView(scope: "server" | "me", entries: TopEntry[], settin
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         btn(`${BR.playTop}${scope}`, "play", "Слушать топ", ButtonStyle.Primary, entries.length === 0),
         btn(BR.home, "back", "Назад"),
+      ),
+    );
+  return { components: [c], flags: V2 };
+}
+
+export function buildRepeatView(entries: TopEntry[], settings: Settings) {
+  const body = entries.length
+    ? entries
+        .slice(0, 15)
+        .map((e, i) => `${trackRow(e.track, i + 1, 60)} · ${e.plays} ${e.plays < 5 ? "раза" : "раз"}`)
+        .join("\n")
+    : "Пока пусто: сюда попадают треки, которые ты включаешь снова и снова (хотя бы дважды за последние 3 недели).";
+  const lines = ["### На повторе", "-# Что ты крутишь последние дни: свежие прослушивания весят больше старых.", body];
+  if (entries.length > 15) lines.push(`-# …и ещё ${entries.length - 15} в подборке`);
+  const c = container(settings)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join("\n").slice(0, 3900)))
+    .addActionRowComponents(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        btn(`${BR.playRepeat}order`, "play", "Слушать", ButtonStyle.Primary, entries.length === 0),
+        btn(`${BR.playRepeat}shuffle`, "shuffle", "Вперемешку", ButtonStyle.Secondary, entries.length === 0),
+        btn(BR.home, "back", "Обзор"),
       ),
     );
   return { components: [c], flags: V2 };

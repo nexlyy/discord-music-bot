@@ -13,6 +13,7 @@ import type { LiveLyrics } from "../ui/lyrics-view.js";
 import type { PlayerMessage } from "../ui/player-message.js";
 import type { Wrapped } from "../wrapped/wrapped.js";
 import type { QuizManager } from "../quiz/game.js";
+import type { QuizStore } from "../quiz/store.js";
 import type { TrackCache } from "./track-cache.js";
 
 const log = createLogger("commands");
@@ -23,6 +24,8 @@ export interface Ctx {
   history: HistoryStore;
   wrapped: Wrapped;
   quiz: QuizManager;
+  /** Рейтинг «Угадай трек» (для /stats) */
+  quizStore: QuizStore;
   /** Какой Артур обслуживает действие: 0 — главный, 1+ — помощники */
   instanceIndex: number;
   /** Выбранный Артур играет в войсе пользователя или свободен и может туда зайти */

@@ -11,7 +11,7 @@ import { MusicError, type Requester } from "./types.js";
 const log = createLogger("soundcloud");
 const BRIDGE = (process.env.SC_BRIDGE_URL ?? "http://sc-bridge:8080").replace(/\/$/, "");
 
-interface ScTrack {
+export interface ScTrack {
   id: number;
   url: string | null;
   title: string;
@@ -101,6 +101,12 @@ export async function scLoad(url: string, lavalink: LavalinkManager, requester: 
 
 export async function scSearch(query: string, lavalink: LavalinkManager, requester: Requester): Promise<SearchResult> {
   return toSearchResult(await bridge(`/search?q=${encodeURIComponent(query)}&limit=10`), lavalink, requester);
+}
+
+/** Сырые результаты поиска (без DRM): из них выбирается замена треку, который не загрузился. */
+export async function scFind(query: string, limit = 10): Promise<ScTrack[]> {
+  const r = await bridge(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  return r.tracks.filter((t) => t.playable && !t.drm);
 }
 
 /** Заранее скачать трек, чтобы между треками не было паузы. */

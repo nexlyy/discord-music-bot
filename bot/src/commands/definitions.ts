@@ -38,6 +38,16 @@ export const commands = [
         .setDescription("За какой период (по умолчанию этот месяц)")
         .addChoices({ name: "Этот месяц", value: "month" }, { name: "Прошлый месяц", value: "last" }, { name: "Всё время", value: "all" }),
     ),
+  new SlashCommandBuilder()
+    .setName("stats")
+    .setDescription("Твоя музыкальная статистика: время в войсе, любимые артисты и треки")
+    .addStringOption((o) =>
+      o
+        .setName("период")
+        .setDescription("За какой период (по умолчанию этот месяц)")
+        .addChoices({ name: "Этот месяц", value: "month" }, { name: "Прошлый месяц", value: "last" }, { name: "Всё время", value: "all" }),
+    )
+    .addUserOption((o) => o.setName("пользователь").setDescription("Чью статистику показать (по умолчанию твою)")),
   new SlashCommandBuilder().setName("like").setDescription("Добавить текущий трек в «Любимые» (или убрать)"),
   new SlashCommandBuilder()
     .setName("loop")

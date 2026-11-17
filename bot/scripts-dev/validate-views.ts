@@ -2,7 +2,8 @@
 import { buildPlayerMessage, buildSettingsCard } from "../src/ui/player-view.js";
 import { buildQueueMessage } from "../src/ui/queue-view.js";
 import { buildPlaylistsHome, buildPlaylistView, buildDeleteConfirm, buildAddToPlaylist } from "../src/ui/library-view.js";
-import { buildBrowseHome, buildTopView, buildRecentView, buildEffectsCard } from "../src/ui/browse-view.js";
+import { buildBrowseHome, buildTopView, buildRecentView, buildEffectsCard, buildRepeatView } from "../src/ui/browse-view.js";
+import { buildStatsView } from "../src/ui/stats-view.js";
 import { settingsSchema } from "../src/settings.js";
 import { lobbyView, roundView, revealView, finalView, topView, noticeView } from "../src/quiz/view.js";
 
@@ -27,6 +28,36 @@ const cases: Record<string, () => { components: { toJSON(): unknown }[] }> = {
   browse: () => buildBrowseHome(settings, 0),
   top: () => buildTopView("server", Array.from({ length: 15 }, (_, i) => ({ track: st(i), plays: i + 1, lastPlayed: 0 })), settings),
   topEmpty: () => buildTopView("me", [], settings),
+  browseFull: () => buildBrowseHome(settings, 100, "note"),
+  repeat: () => buildRepeatView(Array.from({ length: 30 }, (_, i) => ({ track: st(i), plays: 30 - i, lastPlayed: 0 })), settings),
+  repeatEmpty: () => buildRepeatView([], settings),
+  stats: () =>
+    buildStatsView(
+      {
+        name: "Очень длинное имя ".repeat(6),
+        avatar: "https://cdn.discordapp.com/embed/avatars/0.png",
+        period: "Ноябрь 2026",
+        stats: {
+          listened: 148230,
+          listenRank: 2,
+          listenersTotal: 5,
+          requested: 1234,
+          djRank: 1,
+          djsTotal: 4,
+          topTracks: Array.from({ length: 5 }, (_, i) => ({ title: "Трек ".repeat(30), author: "Kai Angel", uri: i % 2 ? null : "https://open.spotify.com/track/x", plays: 178 - i })),
+          topArtists: Array.from({ length: 5 }, (_, i) => ({ name: `Артист ${i}`, plays: 100 - i })),
+          hours: Array.from({ length: 24 }, (_, h) => (h < 5 ? 40 : 5)),
+        },
+        quiz: { points: 4362, games: 2, wins: 2, artist: 5, title: 6, rounds: 22 },
+        self: true,
+      },
+      settings,
+    ),
+  statsMinimal: () =>
+    buildStatsView(
+      { name: "u", avatar: "https://cdn.discordapp.com/embed/avatars/0.png", period: "Всё время", stats: { listened: 0, listenRank: 0, listenersTotal: 0, requested: 1, djRank: 1, djsTotal: 1, topTracks: [], topArtists: [], hours: null }, quiz: null, self: false },
+      settings,
+    ),
   recent: () => buildRecentView(Array.from({ length: 30 }, (_, i) => st(i)), settings),
   effects: () => buildEffectsCard({ bass: true, nightcore: false, vaporwave: false, rotation: true, karaoke: false, tremolo: false, lowPass: false }, settings),
   quizLobby: () => lobbyView({ game: "abc123", accent: "#D4783A", mode: "drop", rounds: 10, seconds: 25, voiceChannelId: "1", startsAt: Date.now() + 8000, hostId: "1" }),

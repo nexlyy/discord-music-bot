@@ -55,6 +55,10 @@ export class QuizStore {
     this.file.write(this.data);
   }
 
+  user(userId: string): QuizUserStats | null {
+    return this.data.users[userId] ?? null;
+  }
+
   top(limit = 10): [string, QuizUserStats][] {
     return Object.entries(this.data.users)
       .filter(([, u]) => u.games > 0)

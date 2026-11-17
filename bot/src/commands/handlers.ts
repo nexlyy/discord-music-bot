@@ -21,7 +21,8 @@ import { LYRICS_IDS } from "../ui/lyrics-view.js";
 import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
 import { QUEUE_JUMP_ID, QUEUE_PAGE_PREFIX, buildQueueMessage } from "../ui/queue-view.js";
 import { fromStored, withRequester } from "../library/stored-track.js";
-import type { WrappedPeriod } from "../wrapped/wrapped.js";
+import { periodKey, periodLabel, type WrappedPeriod } from "../wrapped/wrapped.js";
+import { buildStatsView } from "../ui/stats-view.js";
 import type { QuizMode } from "../quiz/drop.js";
 import { assertSameChannel, assertVoiceBot, describePlay, fail, say, toRequester, trackLink, userVoiceChannel, type Ctx } from "./common.js";
 
@@ -172,6 +173,34 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
         }
       }
       await i.editReply(deleted ? `🧹 Удалено моих сообщений: ${deleted}` : "🧹 Моих старых сообщений здесь нет");
+      return;
+    }
+    case "stats": {
+      const period = (i.options.getString("период") ?? "month") as WrappedPeriod;
+      const target = i.options.getUser("пользователь") ?? i.user;
+      if (target.bot) throw new MusicError("У ботов статистики нет 🙂");
+      const self = target.id === i.user.id;
+      const key = periodKey(period);
+      const label = periodLabel(key);
+      const stats = ctx.history.userStats(target.id, key);
+      const member = await i.guild?.members.fetch(target.id).catch(() => null);
+      const name = member?.displayName ?? target.globalName ?? target.username;
+      if (!stats) {
+        const when = period === "month" ? "В этом месяце" : period === "last" ? "В прошлом месяце" : "Пока";
+        throw new MusicError(`${when} у ${self ? "тебя" : escapeMd(name)} нет музыки с Артуром.`);
+      }
+      const view = buildStatsView(
+        {
+          name,
+          avatar: (member ?? target).displayAvatarURL({ size: 256 }),
+          period: label.title,
+          stats,
+          quiz: ctx.quizStore.user(target.id),
+          self,
+        },
+        settings.get(),
+      );
+      await i.reply({ ...view, flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       return;
     }
     case "wrapped": {

@@ -29,11 +29,11 @@ function previousMonthKey(key = monthKey()): string {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 }
 
-function periodKey(period: WrappedPeriod): string | null {
+export function periodKey(period: WrappedPeriod): string | null {
   return period === "all" ? null : period === "last" ? previousMonthKey() : monthKey();
 }
 
-function periodLabel(key: string | null): { title: string; subtitle: string; inline: string } {
+export function periodLabel(key: string | null): { title: string; subtitle: string; inline: string } {
   if (!key) return { title: "Всё время", subtitle: "Итоги сервера", inline: "за всё время" };
   const [y, m] = key.split("-").map(Number) as [number, number];
   return { title: `${MONTHS[m - 1]} ${y}`, subtitle: "Итоги месяца", inline: `за ${MONTHS_GEN[m - 1]} ${y}` };

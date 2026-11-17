@@ -15,9 +15,12 @@ fi
 
 bash scripts/fix-permissions.sh
 
-# Автообновление плагинов раз в час (скрипт сам ждёт, пока музыка не играет).
+# Автообновление плагинов раз в час (скрипт сам ждёт, пока музыка не играет) и копия данных раз в сутки.
 if [ -d /etc/cron.d ]; then
-  echo "17 * * * * root $(pwd)/scripts/update-plugins.sh >> /var/log/music-bot-update.log 2>&1" > /etc/cron.d/discord-music-bot
+  {
+    echo "17 * * * * root $(pwd)/scripts/update-plugins.sh >> /var/log/music-bot-update.log 2>&1"
+    echo "40 4 * * * root $(pwd)/scripts/backup-data.sh >> /var/log/music-bot-backup.log 2>&1"
+  } > /etc/cron.d/discord-music-bot
   chmod 644 /etc/cron.d/discord-music-bot
 fi
 

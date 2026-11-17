@@ -1,4 +1,6 @@
-import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, type Guild, type GuildMember, type Interaction } from "discord.js";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, codeBlock, type Guild, type GuildMember, type Interaction } from "discord.js";
 import type { Ctx } from "./commands/common.js";
 import { commandsJson } from "./commands/definitions.js";
 import { handleInteraction } from "./commands/handlers.js";
@@ -11,6 +13,7 @@ import { toStored } from "./library/stored-track.js";
 import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
+import { TrackFallback } from "./music/fallback.js";
 import { MusicService } from "./music/service.js";
 import { SessionKeeper } from "./music/session.js";
 import { QuizManager } from "./quiz/game.js";
@@ -34,6 +37,16 @@ const playlists = new PlaylistStore(config.DATA_DIR);
 const history = new HistoryStore(config.DATA_DIR);
 const quizStore = new QuizStore(config.DATA_DIR);
 const cache = new TrackCache();
+// Найденные замены треков, которые не грузятся с YouTube, — общие для всех Артуров.
+const fallback = new TrackFallback(config.DATA_DIR);
+
+/**
+ * Метка «бот работает»: при штатной остановке удаляется. Если при запуске она есть — прошлый запуск
+ * оборвался (ошибка, нехватка памяти, kill), и об этом стоит написать владельцу.
+ */
+const runMarker = join(config.DATA_DIR, ".running");
+const lastCrash = existsSync(runMarker) ? readFileSync(runMarker, "utf8").trim() : null;
+writeFileSync(runMarker, "running");
 
 /**
  * Discord пускает одного бота только в один голосовой канал сервера, поэтому для нескольких каналов —
@@ -59,6 +72,7 @@ function createInstance(index: number): BotInstance {
   });
   const music = new MusicService(client, config, settings, index === 0);
   music.setAutoplay(createAutoplay());
+  music.setFallback(fallback);
   alerts.attach(music);
 
   // Бесшовный перезапуск: продолжаем то, что играло до обновления/перезапуска, в том же сообщении плеера.
@@ -80,7 +94,8 @@ function createInstance(index: number): BotInstance {
     const stored = track ? toStored(track) : null;
     const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
     if (stored && !track?.info.isStream) {
-      history.add(requester, stored);
+      // Замена упавшего трека или перезапуск зависшего — это тот же трек, он уже посчитан.
+      if (!music.lastStartWasRetry) history.add(requester, stored);
       playing = { startedAt: Date.now(), duration: track!.info.duration };
     }
   });
@@ -145,7 +160,16 @@ function createInstance(index: number): BotInstance {
     setTimeout(() => void inst.playerMessage.sweepGuild(config.DISCORD_GUILD_ID).catch((e) => log.warn("Уборка плееров:", e)), 20_000);
     if (index === 0) {
       wrapped.start();
+      await alerts.useDiscord(c);
       void alerts.send("started", "info", "✅ Бот запущен", `Вошёл как **${c.user.tag}**, помощников: ${instances.length - 1}.`, 60_000);
+      if (lastCrash !== null) {
+        const reason =
+          lastCrash === "running"
+            ? "Процесс оборвался без ошибки в логе: скорее всего, не хватило памяти или сервер перезагрузился."
+            : `Причина:\n${codeBlock(lastCrash.slice(0, 1500))}`;
+        const text = `${reason}\n\nМузыка продолжена с последнего сохранения (не старше 30 секунд).`;
+        void alerts.send("crashed", "error", "⚠️ Артур упал и перезапустился", text, 0);
+      }
     }
   });
 
@@ -191,6 +215,7 @@ function ctxFor(inst: BotInstance, bound: boolean): Ctx {
     settings,
     playlists,
     history,
+    quizStore,
     wrapped,
     cache,
     music: inst.music,
@@ -219,14 +244,22 @@ setInterval(() => {
 
 process.on("unhandledRejection", (e) => {
   log.error("unhandledRejection:", e);
-  void alerts.send("unhandled", "error", "⚠️ Необработанная ошибка", String(e instanceof Error ? (e.stack ?? e.message) : e), 15 * 60_000);
+  const text = String(e instanceof Error ? (e.stack ?? e.message) : e).slice(0, 1500);
+  const about = "Бот поймал необработанную ошибку, но продолжает работать. Если повторяется — покажи это Claude.";
+  void alerts.send("unhandled", "error", "⚠️ Ошибка в боте", `${about}\n${codeBlock(text)}`, 15 * 60_000);
 });
 process.on("uncaughtException", (e) => {
   log.error("uncaughtException:", e);
-  // После такого исключения состояние процесса не гарантировано: шлём уведомление и даём Docker перезапустить бота.
-  void alerts
-    .send("uncaught", "error", "⚠️ Бот упал и перезапускается", e.stack ?? e.message, 15 * 60_000)
-    .finally(() => process.exit(1));
+  // После такого исключения состояние процесса не гарантировано: Docker перезапустит бота,
+  // а новый запуск по метке узнает причину и напишет владельцу.
+  try {
+    writeFileSync(runMarker, e.stack ?? e.message);
+    history.flush();
+    fallback.flush();
+  } catch {
+    /* выходим в любом случае */
+  }
+  process.exit(1);
 });
 
 async function shutdown(signal: string) {
@@ -236,6 +269,8 @@ async function shutdown(signal: string) {
     await Promise.all(instances.map((x) => x.lyrics.closeAll("Бот перезапускается — открой текст заново через минуту")));
     playlists.flush();
     history.flush();
+    fallback.flush();
+    rmSync(runMarker, { force: true });
     await Promise.all(instances.map((x) => x.client.destroy()));
   } finally {
     process.exit(0);

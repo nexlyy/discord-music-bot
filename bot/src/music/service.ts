@@ -20,6 +20,8 @@ import {
   type SearchSourceKey,
 } from "../sources.js";
 import { humanizeLoadError, isYoutubeAuthError } from "./errors.js";
+import { formatDuration } from "../format.js";
+import type { TrackFallback } from "./fallback.js";
 import { playlistMeta } from "./playlist-meta.js";
 import { prefetch, scLoad, scSearch } from "./soundcloud.js";
 import {
@@ -96,7 +98,10 @@ export class MusicService extends EventEmitter<ServiceEvents> {
   private leaveReason: "queue" | "empty" | null = null;
   private autoPausedForEmpty = false;
   private autoplayFn: AutoplayFn | null = null;
+  private fallback: TrackFallback | null = null;
   private trackNumber = 0;
+  /** Последний старт — это повтор того же трека (замена упавшего или перезапуск зависшего), а не новый трек. */
+  lastStartWasRetry = false;
   /** Восстановление после перезапуска бота: вызывается один раз, когда Lavalink готов. */
   onFirstReady: (() => Promise<void>) | null = null;
   /** Идёт «Угадай трек»: играющий трек скрыт, управление плеером заблокировано. */
@@ -145,7 +150,8 @@ export class MusicService extends EventEmitter<ServiceEvents> {
         volumeDecrementer: 1,
         useUnresolvedData: true,
         minAutoPlayMs: 5_000,
-        maxErrorsPerTime: { threshold: 35_000, maxAmount: 5 },
+        // Замены упавших треков тоже считаются ошибками: порог с запасом, но бесконечный цикл всё равно оборвётся.
+        maxErrorsPerTime: { threshold: 35_000, maxAmount: 10 },
         onDisconnect: { autoReconnect: false, destroyPlayer: true },
         onEmptyQueue: {
           autoPlayFunction: async (player, lastTrack) => {
@@ -169,6 +175,10 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
   setAutoplay(fn: AutoplayFn) {
     this.autoplayFn = fn;
+  }
+
+  setFallback(fallback: TrackFallback) {
+    this.fallback = fallback;
   }
 
   async init() {
@@ -744,14 +754,25 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const lm = this.lavalink;
 
     lm.on("trackStart", (player) => {
+      const cur = player.queue.current;
+      const data = cur?.userData as { retryStart?: boolean; resumeAt?: number } | undefined;
+      this.lastStartWasRetry = Boolean(data?.retryStart);
+      if (data) delete data.retryStart;
       if (this.quietMode) return;
-      this.trackNumber++;
+      // Перезапуск зависшего трека: продолжаем с того места, где он встал.
+      if (data?.resumeAt) {
+        const at = data.resumeAt;
+        delete data.resumeAt;
+        void player.seek(at).catch(() => undefined);
+      }
+      if (!this.lastStartWasRetry) this.trackNumber++;
       prefetch(player.queue.tracks[0]);
       this.cancelLeave("queue");
-      this.log.info(`▶ ${player.queue.current?.info.author} — ${player.queue.current?.info.title}`);
+      this.log.info(`▶ ${cur?.info.author} — ${cur?.info.title}${this.lastStartWasRetry ? " (повтор)" : ""}`);
       this.emit("update", "trackStart");
     });
-    lm.on("trackEnd", () => {
+    lm.on("trackEnd", (_player, track, payload) => {
+      if (payload?.reason !== "loadFailed") this.fallback?.confirm(track);
       if (!this.quietMode) this.emit("update", "trackEnd");
     });
     lm.on("queueEnd", () => {
@@ -759,13 +780,26 @@ export class MusicService extends EventEmitter<ServiceEvents> {
       this.emit("update", "queue");
       this.scheduleLeave("queue", this.settings.get().leaveOnQueueEndSec);
     });
-    lm.on("trackError", (_player, track, payload) => {
-      const raw = payload?.exception?.message ?? payload?.exception?.cause ?? "";
-      const text = humanizeLoadError(raw);
-      this.log.warn(`Ошибка трека "${track?.info?.title}": ${raw}`);
-      this.emit("trackError", isYoutubeAuthError(raw) ? raw : text, track);
+    lm.on("trackError", (player, track, payload) => {
+      // Ошибка загрузки от Lavalink — объект события; ошибка поиска отложенного трека — обычный Error.
+      const resolveFailed = payload instanceof Error;
+      const event = resolveFailed
+        ? null
+        : (payload as { exception?: { message?: string; cause?: string }; track?: { encoded?: string; info?: { identifier?: string } } } | undefined);
+      const raw = resolveFailed ? payload.message : (event?.exception?.message ?? event?.exception?.cause ?? "");
+      this.log.warn(`Ошибка трека "${track?.info?.title}": ${raw.split(/\r?\n/)[0]}`);
+      // Трек не загрузился — пробуем рабочую копию с другой площадки вместо пропуска.
+      // Только если библиотека ещё не перешла к следующему треку (иначе замена встанет не туда).
+      const failed = event?.track;
+      const same = !failed || failed.encoded === track?.encoded || failed.info?.identifier === track?.info?.identifier;
+      if (!resolveFailed && !this.quietMode && same && track?.encoded && this.fallback?.plan(player, track as Track, this.lavalink)) {
+        this.log.info(`Ищу замену: ${track.info.author} — ${track.info.title}`);
+        return;
+      }
+      this.emit("trackError", isYoutubeAuthError(raw) ? raw : humanizeLoadError(raw), track);
     });
-    lm.on("trackStuck", (_player, track) => {
+    lm.on("trackStuck", (player, track) => {
+      if (!this.quietMode && track && this.restartStuck(player, track as Track)) return;
       this.log.warn(`Трек завис: ${track?.info?.title}`);
       this.emit("trackError", "Трек завис и был пропущен.", track);
     });
@@ -815,6 +849,30 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     }
     await this.ensureStay247();
     this.emit("update", "connect");
+  }
+
+  /**
+   * Трек завис (Lavalink 10 с не получал звук — обычно сетевой сбой). Один раз запускаем его заново
+   * с того же места; если зависнет снова — пропускаем, как раньше. Вызывается синхронно из события,
+   * до того как библиотека перейдёт к следующему треку.
+   */
+  private restartStuck(player: Player, track: Track): boolean {
+    const data = track.userData as { stuckRetry?: boolean } | undefined;
+    if (!track.encoded || track.info.isStream || data?.stuckRetry) return false;
+    const resumeAt = Math.max(0, (player.lastPosition ?? 0) - 1000);
+    const copy = this.lavalink.utils.buildTrack(
+      {
+        encoded: track.encoded,
+        info: { ...track.info },
+        pluginInfo: track.pluginInfo ?? {},
+        userData: { ...(track.userData ?? {}), stuckRetry: true, retryStart: true, resumeAt },
+      } as unknown as Track,
+      track.requester,
+    );
+    player.queue.tracks.unshift(copy);
+    void player.queue.utils.save();
+    this.log.warn(`Трек завис: ${track.info.title} — запускаю заново с ${formatDuration(resumeAt)}`);
+    return true;
   }
 
   /** Lavalink перезапустился: плееры в памяти бота есть, на сервере их нет — пересоздаём. */

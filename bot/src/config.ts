@@ -17,6 +17,11 @@ const schema = z.object({
   PANEL_PASSWORD: z.string().min(6, "PANEL_PASSWORD должен быть не короче 6 символов"),
   DATA_DIR: z.string().default("./data"),
   ALERT_WEBHOOK_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  /** Кому слать уведомления о сбоях в личку (ID через запятую). Пусто — владельцу приложения бота. */
+  ALERT_USER_IDS: z.preprocess(
+    (v) => (typeof v === "string" ? v.split(",").map((t) => t.trim()).filter((t) => /^\d{17,20}$/.test(t)) : []),
+    z.array(z.string()),
+  ),
 });
 
 export type Config = z.infer<typeof schema>;
