@@ -15,9 +15,9 @@ import { fromStored, toStored, type StoredTrack } from "../library/stored-track.
 import type { Track } from "lavalink-client";
 import { looseKey } from "../library/history.js";
 import { createLogger } from "../logger.js";
-import { similarTracks } from "../music/autoplay.js";
+import { recommendFor } from "../music/autoplay.js";
 import { EFFECTS, type EffectKey } from "../music/service.js";
-import { AUTOPLAY_REQUESTER, MusicError } from "../music/types.js";
+import { MusicError } from "../music/types.js";
 import { isUrl } from "../sources.js";
 import { BR, FX, buildBrowseHome, buildEffectsCard, buildRecentView, buildRepeatView, buildTopView } from "../ui/browse-view.js";
 import { PL, buildAddToPlaylist, buildDeleteConfirm, buildPlaylistView, buildPlaylistsHome } from "../ui/library-view.js";
@@ -110,13 +110,13 @@ async function addFreshTracks(ctx: Ctx, seeds: StoredTrack[], blendTracks: Set<T
   const fresh: Track[] = [];
   // Семена — первые треки микса (по одному любимому от каждого), похожие ищем через рекомендации площадки.
   for (const seed of seeds.slice(0, 4)) {
-    if (fresh.length >= BLEND_FRESH || !seed.encoded) continue;
-    const similar = await similarTracks(player, fromStored(seed, ctx.music.lavalink, AUTOPLAY_REQUESTER)).catch(() => [] as Track[]);
+    if (fresh.length >= BLEND_FRESH) continue;
+    const similar = await recommendFor(player, seed.info as Track["info"], ctx.taste).catch(() => [] as Track[]);
     let fromSeed = 0;
     for (const t of similar) {
       if (t.info.isStream || (t.info.duration ?? 0) > 10 * 60_000 || (t.info.duration ?? 0) < 60_000) continue;
       const key = looseKey(t.info.author, t.info.title);
-      if (heard.has(key)) continue;
+      if (heard.has(key) || ctx.taste.blocked(t.info)) continue;
       heard.add(key);
       t.userData = { ...(t.userData ?? {}), playlistName: BLEND_NAME, playlistUrl: null };
       fresh.push(t);

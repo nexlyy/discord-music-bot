@@ -24,8 +24,11 @@ import { formatDuration } from "../format.js";
 import type { TrackFallback } from "./fallback.js";
 import { playlistMeta } from "./playlist-meta.js";
 import { prefetch, scLoad, scSearch } from "./soundcloud.js";
+import { QUICK_SKIP_MS } from "./taste.js";
 import {
+  AUTOPLAY_REQUESTER,
   MusicError,
+  requesterOf,
   toTrackView,
   type PlayerSnapshot,
   type Requester,
@@ -87,6 +90,8 @@ interface ServiceEvents {
   nodeUp: [node: LavalinkNode];
   /** Тихий режим («Угадай трек»): включён/выключен */
   quiet: [enabled: boolean];
+  /** Человек пропустил трек автоплея в первые секунды */
+  autoplaySkip: [track: Track];
 }
 
 export class MusicService extends EventEmitter<ServiceEvents> {
@@ -402,6 +407,10 @@ export class MusicService extends EventEmitter<ServiceEvents> {
 
   async skip(count = 1): Promise<void> {
     const p = this.requireCurrent();
+    const cur = p.queue.current;
+    if (count === 1 && cur && !this.quietMode && requesterOf(cur)?.id === AUTOPLAY_REQUESTER.id && p.position < QUICK_SKIP_MS) {
+      this.emit("autoplaySkip", cur);
+    }
     if (count > 1) {
       if (count > p.queue.tracks.length) throw new MusicError(`В очереди только ${p.queue.tracks.length}.`);
       await p.skip(count, false);
@@ -604,6 +613,21 @@ export class MusicService extends EventEmitter<ServiceEvents> {
     const n = p.queue.tracks.length;
     await p.queue.splice(0, n);
     this.emit("update", "queue");
+    return n;
+  }
+
+  /** Убрать из очереди треки автоплея, которые больше не подходят (артиста убрали из подбора). */
+  async dropAutoplayTracks(unwanted: (t: Track | UnresolvedTrack) => boolean): Promise<number> {
+    const p = this.player;
+    if (!p) return 0;
+    let n = 0;
+    for (let idx = p.queue.tracks.length - 1; idx >= 0; idx--) {
+      const t = p.queue.tracks[idx]!;
+      if (requesterOf(t)?.id !== AUTOPLAY_REQUESTER.id || !unwanted(t)) continue;
+      await p.queue.splice(idx, 1);
+      n++;
+    }
+    if (n) this.emit("update", "queue");
     return n;
   }
 

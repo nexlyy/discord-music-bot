@@ -15,7 +15,9 @@ import {
 import type { RepeatMode, Track } from "lavalink-client";
 import { escapeMd, formatDuration, parseTime, tracksWord, truncate } from "../format.js";
 import { createLogger } from "../logger.js";
-import { MusicError } from "../music/types.js";
+import { mainArtist } from "../music/taste.js";
+import { AUTOPLAY_REQUESTER, MusicError, requesterOf } from "../music/types.js";
+import { AP_UNBAN, blockedLine, unbanButton, unbanMenu } from "../ui/autoplay-view.js";
 import { SEARCH_SOURCES, SEARCH_SOURCE_KEYS, isSearchSourceKey, isUrl, sourceInfo, type SearchSourceKey } from "../sources.js";
 import { LYRICS_IDS } from "../ui/lyrics-view.js";
 import { OPTION_VALUES, PLAYER_IDS, SETTINGS_IDS, buildSettingsCard } from "../ui/player-view.js";
@@ -257,7 +259,15 @@ async function runCommand(i: ChatInputCommandInteraction, ctx: Ctx) {
       assertSameChannel(i, music);
       const enabled = i.options.getBoolean("включить") ?? !music.autoplayEnabled;
       music.setAutoplayEnabled(enabled);
-      return say(i, enabled ? "♾️ Автоплей включён: когда очередь кончится, добавлю похожие треки" : "♾️ Автоплей выключен");
+      const blocked = ctx.taste.blockedList();
+      return i.reply({
+        content:
+          (enabled ? "♾️ Автоплей включён: когда очередь кончится, добавлю похожие на то, что включали вы" : "♾️ Автоплей выключен") +
+          blockedLine(blocked),
+        components: unbanMenu(blocked),
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
     }
     case "lyrics":
       // Текст видит только тот, кто его открыл.
@@ -412,6 +422,26 @@ async function runPersonalOption(i: StringSelectMenuInteraction, ctx: Ctx): Prom
   return true;
 }
 
+/** «Не ставить в автоплей»: исполнитель текущего трека больше не подбирается; если трек от автоплея — пропускаем. */
+async function banFromAutoplay(i: StringSelectMenuInteraction, ctx: Ctx) {
+  const { music, taste } = ctx;
+  const cur = music.player?.queue.current;
+  if (!cur) throw new MusicError("Сейчас ничего не играет.");
+  const name = mainArtist(cur.info);
+  const key = taste.ban(name, i.user.id);
+  const removed = await music.dropAutoplayTracks((t) => taste.blocked(t.info) !== null);
+  const fromAutoplay = requesterOf(cur)?.id === AUTOPLAY_REQUESTER.id;
+  if (fromAutoplay) await music.skip();
+  const notes = [fromAutoplay && "трек пропущен", removed > 0 && `из очереди убрано: ${removed}`].filter(Boolean);
+  log.info(`${i.user.username}: убрал из автоплея ${name}`);
+  await i.reply({
+    content: `🚫 **${escapeMd(name)}** больше не попадёт в автоплей${notes.length ? ` (${notes.join(", ")})` : ""}.\n-# Вернуть потом можно через /autoplay.`,
+    components: [unbanButton(key)],
+    flags: MessageFlags.Ephemeral,
+    allowedMentions: { parse: [] },
+  });
+}
+
 async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
   const { music, settings } = ctx;
   switch (i.values[0]) {
@@ -442,6 +472,9 @@ async function runOption(i: StringSelectMenuInteraction, ctx: Ctx) {
       music.emit("update", "settings");
       break;
     }
+    case OPTION_VALUES.noAutoplay:
+      await banFromAutoplay(i, ctx);
+      break;
     case OPTION_VALUES.clear:
       await music.clear();
       break;
@@ -491,6 +524,19 @@ async function runComponent(i: ButtonInteraction | StringSelectMenuInteraction, 
       await music.changeVolume((id === SETTINGS_IDS.volUp ? 1 : -1) * settings.get().volumeStep);
     }
     await i.update(buildSettingsCard(music.snapshot(), settings.get()));
+    return;
+  }
+
+  if (id.startsWith(AP_UNBAN)) {
+    const keys = i.isStringSelectMenu() ? i.values : [id.slice(AP_UNBAN.length + 1)];
+    const names = keys.map((k) => ctx.taste.unban(k)).filter((n): n is string => !!n);
+    if (names.length) log.info(`${i.user.username}: вернул в автоплей ${names.join(", ")}`);
+    const left = ctx.taste.blockedList();
+    await i.update({
+      content: (names.length ? `↩️ Вернул в автоплей: ${names.map(escapeMd).join(", ")}` : "Уже в автоплее.") + blockedLine(left),
+      components: i.isStringSelectMenu() ? unbanMenu(left) : [],
+      allowedMentions: { parse: [] },
+    });
     return;
   }
 

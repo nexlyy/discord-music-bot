@@ -4,6 +4,7 @@ import { buildQueueMessage } from "../src/ui/queue-view.js";
 import { buildPlaylistsHome, buildPlaylistView, buildDeleteConfirm, buildAddToPlaylist } from "../src/ui/library-view.js";
 import { buildBrowseHome, buildTopView, buildRecentView, buildEffectsCard, buildRepeatView } from "../src/ui/browse-view.js";
 import { buildStatsView } from "../src/ui/stats-view.js";
+import { unbanButton, unbanMenu } from "../src/ui/autoplay-view.js";
 import { settingsSchema } from "../src/settings.js";
 import { lobbyView, roundView, revealView, finalView, topView, noticeView } from "../src/quiz/view.js";
 
@@ -67,6 +68,8 @@ const cases: Record<string, () => { components: { toJSON(): unknown }[] }> = {
   quizFinal: () => finalView({ accent: "#D4783A", mode: "drop", played: 10, leaders: Array.from({ length: 12 }, (_, i) => ({ userId: String(100000000000000000 + i), points: 9000 - i * 500, artist: 7, title: 5 })), stoppedBy: "1" }),
   quizTop: () => topView("#D4783A", [["1", { points: 54000, games: 12, wins: 5, artist: 80, title: 70, rounds: 120 }]]),
   quizNotice: () => noticeView("#D4783A", "Игра остановлена."),
+  unbanMenu: () => ({ components: unbanMenu(Array.from({ length: 30 }, (_, i) => ({ key: `artist${i}`.repeat(20), name: `Исполнитель ${i} `.repeat(12), why: i % 2 ? ("ban" as const) : ("skips" as const), at: i }))) }),
+  unbanButton: () => ({ components: [unbanButton("ochen dlinnoe imia ispolnitelia ".repeat(5))] }),
 };
 let failed = 0;
 for (const [name, build] of Object.entries(cases)) {

@@ -14,6 +14,7 @@ import { createLogger } from "./logger.js";
 import { Alerts } from "./monitor.js";
 import { createAutoplay } from "./music/autoplay.js";
 import { TrackFallback } from "./music/fallback.js";
+import { AutoplayTaste } from "./music/taste.js";
 import { MusicService } from "./music/service.js";
 import { SessionKeeper } from "./music/session.js";
 import { QuizManager } from "./quiz/game.js";
@@ -39,6 +40,8 @@ const quizStore = new QuizStore(config.DATA_DIR);
 const cache = new TrackCache();
 // Найденные замены треков, которые не грузятся с YouTube, — общие для всех Артуров.
 const fallback = new TrackFallback(config.DATA_DIR);
+// Кого не ставить в автоплей (убранные артисты, быстрые скипы) — тоже общее.
+const taste = new AutoplayTaste(config.DATA_DIR);
 
 /**
  * Метка «бот работает»: при штатной остановке удаляется. Если при запуске она есть — прошлый запуск
@@ -71,7 +74,11 @@ function createInstance(index: number): BotInstance {
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages],
   });
   const music = new MusicService(client, config, settings, index === 0);
-  music.setAutoplay(createAutoplay());
+  music.setAutoplay(createAutoplay({ history, taste, listeners: () => music.channelListeners() }));
+  music.on("autoplaySkip", (t) => {
+    const r = taste.quickSkip(t.info);
+    log.info(`Автоплей: «${t.info.author} — ${t.info.title}» пропустили сразу${r.blocked ? `, ${r.name} больше не подбираю` : ""}`);
+  });
   music.setFallback(fallback);
   alerts.attach(music);
 
@@ -95,7 +102,10 @@ function createInstance(index: number): BotInstance {
     const requester = (track?.requester as { id?: string } | undefined)?.id ?? "unknown";
     if (stored && !track?.info.isStream) {
       // Замена упавшего трека или перезапуск зависшего — это тот же трек, он уже посчитан.
-      if (!music.lastStartWasRetry) history.add(requester, stored);
+      if (!music.lastStartWasRetry) {
+        history.add(requester, stored);
+        if (/^\d+$/.test(requester)) taste.humanPlayed(track!.info);
+      }
       playing = { startedAt: Date.now(), duration: track!.info.duration };
     }
   });
@@ -216,6 +226,7 @@ function ctxFor(inst: BotInstance, bound: boolean): Ctx {
     playlists,
     history,
     quizStore,
+    taste,
     wrapped,
     cache,
     music: inst.music,
@@ -256,6 +267,7 @@ process.on("uncaughtException", (e) => {
     writeFileSync(runMarker, e.stack ?? e.message);
     history.flush();
     fallback.flush();
+    taste.flush();
   } catch {
     /* выходим в любом случае */
   }
@@ -270,6 +282,7 @@ async function shutdown(signal: string) {
     playlists.flush();
     history.flush();
     fallback.flush();
+    taste.flush();
     rmSync(runMarker, { force: true });
     await Promise.all(instances.map((x) => x.client.destroy()));
   } finally {

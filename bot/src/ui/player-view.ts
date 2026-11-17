@@ -13,6 +13,7 @@ import {
 } from "discord.js";
 import type { Settings } from "../settings.js";
 import { escapeMd, formatDuration, truncate } from "../format.js";
+import { mainArtist } from "../music/taste.js";
 import type { PlayerSnapshot, TrackView } from "../music/types.js";
 import { SEARCH_SOURCES, isSearchSourceKey, sourceInfo } from "../sources.js";
 import { icon, type IconKey } from "./emoji.js";
@@ -42,6 +43,7 @@ export const OPTION_VALUES = {
   loopQueue: "loopq",
   loopTrack: "loopt",
   autoplay: "autoplay",
+  noAutoplay: "noap",
   volDown: "voldown",
   volUp: "volup",
   stay247: "247",
@@ -96,6 +98,16 @@ function optionsMenu(snap: PlayerSnapshot, settings: Settings) {
       { label: "Повтор очереди", value: OPTION_VALUES.loopQueue, description: onOff(snap.repeatMode === "queue"), emoji: icon("repeat") },
       { label: "Повтор трека", value: OPTION_VALUES.loopTrack, description: onOff(snap.repeatMode === "track"), emoji: icon("repeat1") },
       { label: "Автоплей", value: OPTION_VALUES.autoplay, description: `Похожие треки после очереди. ${onOff(snap.autoplay)}`, emoji: icon("autoplay") },
+      ...(snap.current && !snap.current.isStream
+        ? [
+            {
+              label: "Не ставить в автоплей",
+              value: OPTION_VALUES.noAutoplay,
+              description: truncate(`Больше не подбирать: ${mainArtist(snap.current)}`, 100),
+              emoji: icon("ban"),
+            },
+          ]
+        : []),
       { label: `Тише (−${settings.volumeStep}%)`, value: OPTION_VALUES.volDown, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("voldown") },
       { label: `Громче (+${settings.volumeStep}%)`, value: OPTION_VALUES.volUp, description: `Громкость сейчас ${snap.volume}%`, emoji: icon("volup") },
       ...(snap.canStay247 ? [{ label: "Режим 24/7", value: OPTION_VALUES.stay247, description: `Не выходить из канала. ${onOff(snap.stay247)}`, emoji: icon("moon") }] : []),

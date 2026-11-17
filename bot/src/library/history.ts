@@ -315,6 +315,28 @@ export class HistoryStore {
     return keys;
   }
 
+  /** Что звучало за последние часы (кем угодно) — автоплей это не повторяет. */
+  recentKeys(hours: number): Set<string> {
+    const since = Date.now() - hours * 3_600_000;
+    const keys = new Set<string>();
+    for (let i = this.plays.length - 1; i >= 0 && this.plays[i]!.t >= since; i--) {
+      const r = this.plays[i]!;
+      keys.add(looseKey(r.track.info.author, r.track.info.title));
+    }
+    return keys;
+  }
+
+  /** Сколько раз люди (не автоплей) включали каждого исполнителя за последние дни. */
+  humanArtists(days: number): Map<string, number> {
+    const since = Date.now() - days * 86_400_000;
+    const out = new Map<string, number>();
+    for (const r of this.plays) {
+      if (r.t < since || !isUserId(r.user)) continue;
+      for (const a of splitArtists(r.track.info.author)) out.set(a, (out.get(a) ?? 0) + 1);
+    }
+    return out;
+  }
+
   /** Самые частые треки. Автоплей не считается: в топ попадает только то, что включали люди. */
   top(opts: { userId?: string; days?: number; limit?: number } = {}): TopEntry[] {
     const since = opts.days ? Date.now() - opts.days * 86_400_000 : 0;

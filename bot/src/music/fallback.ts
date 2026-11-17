@@ -59,7 +59,7 @@ interface Candidate {
 type Info = Track["info"];
 
 /** Версии трека, которые не подходят как замена оригиналу. */
-const VARIANT =
+export const VARIANT =
   /\b(slowed|reverb|sped ?up|speed ?up|nightcore|remix|cover|instrumental|karaoke|8d|bass ?boost(ed)?|live|mashup|acapella|a cappella)\b|ремикс|кавер|минус|замедл|ускор|караоке/i;
 
 const norm = (s: string) =>
@@ -70,7 +70,7 @@ const norm = (s: string) =>
     .trim();
 
 /** "так похуй (prod. X)" → "так похуй"; "Song - Remastered 2011" → "song". */
-function baseTitle(title: string): string {
+export function baseTitle(title: string): string {
   return norm(title.replace(/\s*[([][^)\]]*[)\]]/g, " ").replace(/\s+-\s+.*$/, "")) || norm(title);
 }
 
@@ -83,7 +83,7 @@ const CYR: Record<string, string> = {
  * Для сравнения: кириллица в латиницу и сглаживание разных транслитов — «Валентин Стрыкало» = «Valentin Strykalo»,
  * «Пошлая Молли» = «Poshlaya Molly». В Spotify исполнитель часто записан латиницей, а на SoundCloud и YouTube — кириллицей.
  */
-function fold(s: string): string {
+export function fold(s: string): string {
   return norm(s)
     .replace(/[а-я]/g, (c) => CYR[c] ?? c)
     .replace(/kh/g, "h")

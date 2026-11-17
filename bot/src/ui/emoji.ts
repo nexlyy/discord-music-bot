@@ -36,6 +36,7 @@ const FALLBACK = {
   radio: "📻",
   recent: "🕘",
   back: "⬅️",
+  ban: "🚫",
 } as const;
 
 export type IconKey = keyof typeof FALLBACK;
