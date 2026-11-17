@@ -162,6 +162,12 @@ export class MusicService extends EventEmitter<ServiceEvents> {
           autoPlayFunction: async (player, lastTrack) => {
             if (!this.quietMode && this.autoplayEnabled && this.autoplayFn && lastTrack) {
               await this.autoplayFn(player, lastTrack).catch((e) => this.log.warn("Автоплей не сработал:", e));
+              // Если автоплей что-то добавил, библиотека не кладёт последний трек в «предыдущие»: он пропал бы
+              // и для кнопки «назад», и как семя следующей подборки. Кладём сами.
+              if (player.queue.tracks.length > 0 && player.queue.previous[0] !== lastTrack) {
+                player.queue.previous.unshift(lastTrack);
+                if (player.queue.previous.length > 50) player.queue.previous.splice(50);
+              }
             }
           },
         },
