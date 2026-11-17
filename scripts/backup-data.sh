@@ -15,7 +15,7 @@ chmod 700 "$DEST"
 
 name="music-bot-$(date +%F).tar.gz"
 # Файлы данных пишутся атомарно (временный файл + переименование), поэтому копировать можно на ходу.
-tar --exclude='data/*.tmp' -czf "$DEST/$name.part" data .env
+tar --exclude='data/*.tmp' --exclude='data/.running' -czf "$DEST/$name.part" data .env
 mv "$DEST/$name.part" "$DEST/$name"
 find "$DEST" -maxdepth 1 -name 'music-bot-*.tar.gz' -mtime +"$KEEP_DAYS" -delete
 

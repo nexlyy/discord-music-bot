@@ -74,17 +74,34 @@ function baseTitle(title: string): string {
   return norm(title.replace(/\s*[([][^)\]]*[)\]]/g, " ").replace(/\s+-\s+.*$/, "")) || norm(title);
 }
 
+const CYR: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z", и: "i", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
+  р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "i", ь: "", э: "e", ю: "iu", я: "ia",
+};
+
+/**
+ * Для сравнения: кириллица в латиницу и сглаживание разных транслитов — «Валентин Стрыкало» = «Valentin Strykalo»,
+ * «Пошлая Молли» = «Poshlaya Molly». В Spotify исполнитель часто записан латиницей, а на SoundCloud и YouTube — кириллицей.
+ */
+function fold(s: string): string {
+  return norm(s)
+    .replace(/[а-я]/g, (c) => CYR[c] ?? c)
+    .replace(/kh/g, "h")
+    .replace(/y/g, "i")
+    .replace(/(.)\1+/g, "$1");
+}
+
 /** Насколько кандидат похож на оригинал; null — точно не он. */
 export function matchScore(orig: Pick<Info, "title" | "author" | "duration">, cand: Pick<Candidate, "title" | "author" | "duration">): number | null {
-  const text = ` ${norm(`${cand.author} ${cand.title}`)} `;
-  const words = baseTitle(orig.title).split(" ").filter(Boolean);
+  const text = ` ${fold(`${cand.author} ${cand.title}`)} `;
+  const words = fold(baseTitle(orig.title)).split(" ").filter(Boolean);
   if (words.length === 0) return null;
   const hits = words.filter((w) => text.includes(` ${w} `)).length;
   if (hits < words.length && !(words.length >= 4 && hits / words.length >= 0.75)) return null;
   if (VARIANT.test(cand.title) && !VARIANT.test(orig.title)) return null;
 
   // Исполнитель должен где-то встретиться: в имени автора или в названии залитого трека.
-  const artists = splitArtists(orig.author).map(norm).filter(Boolean);
+  const artists = splitArtists(orig.author).map(fold).filter(Boolean);
   if (artists.length > 0 && !artists.some((a) => text.includes(` ${a} `))) return null;
 
   let score = 1;
@@ -94,7 +111,9 @@ export function matchScore(orig: Pick<Info, "title" | "author" | "duration">, ca
     if (diff > tolerance) return null;
     score += 1 - diff / tolerance;
   }
-  if (norm(cand.title) === baseTitle(orig.title) || norm(cand.title).endsWith(` ${baseTitle(orig.title)}`)) score += 0.5;
+  const want = fold(baseTitle(orig.title));
+  const got = fold(cand.title);
+  if (got === want || got.endsWith(` ${want}`)) score += 0.5;
   return score;
 }
 
@@ -192,7 +211,13 @@ export class TrackFallback {
     const self = this;
     ph.resolve = async function (this: UnresolvedTrack, player: Player) {
       const found = await self.resolveFor(player, failed, key, state, lavalink);
-      if (!found) throw new Error(`Нет рабочей копии: ${failed.info.author} — ${failed.info.title}`);
+      if (!found) {
+        // Без этого библиотека оставила бы текущим упавший оригинал и запустила его снова.
+        // Пустой текущий трек — и она переходит к следующему в очереди (или к автоплею).
+        player.queue.current = null;
+        self.attempts.delete(key);
+        throw new Error(`Нет рабочей копии: ${failed.info.author} — ${failed.info.title}`);
+      }
       // Превращаем этот объект в готовый трек — так же, как это делает сама библиотека.
       const target = this as unknown as Record<PropertyKey, unknown>;
       for (const prop of Object.getOwnPropertyNames(target)) delete target[prop];
